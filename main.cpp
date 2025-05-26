@@ -1,13 +1,35 @@
+#include <iostream>
 #include <Windows.h>
+#include <commdlg.h> // color picker
+#include <fstream>
+#include <vector>
 
 using namespace std;
 
+struct DDALine {
+    POINT start;
+    POINT end;
+    COLORREF color;
+};
+
+std::vector<DDALine> DDAlines;
+
+
+
+#define ID_DRAW_DDA       101
+#define ID_COLOR_PICKER   102
+#define ID_CLEAR_SCREEN   103
+#define ID_MENU_SAVE      104
+#define ID_MENU_LOAD      105
+
+// Global variables
+COLORREF currentColor = RGB(0, 0, 0);
+bool isDrawing = false;
+POINT startPoint;
+
+// Function declarations
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp);
-
-// Helper Function
-int Round(double x);
 void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
-
 
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
@@ -36,20 +58,113 @@ int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
     return 0;
 }
 
+HWND hwndCanvas;
 
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 {
+    static HWND btnDDA, btnClear, btnColor;
+    static int toolSelected = 0;
+
     HDC hdc;
     switch (m)
     {
+        case WM_CREATE: {
+            HMENU hMenubar = CreateMenu();
+
+            // Options menu
+            HMENU hMenu = CreateMenu();
+            AppendMenu(hMenu, MF_STRING, ID_DRAW_DDA,      "Draw DDA Line");
+            AppendMenu(hMenu, MF_STRING, ID_COLOR_PICKER,  "Choose Color");
+            AppendMenu(hMenu, MF_STRING, ID_CLEAR_SCREEN,  "Clear Screen");
+            AppendMenu(hMenu, MF_STRING, ID_MENU_SAVE, "Save");
+            AppendMenu(hMenu, MF_STRING, ID_MENU_LOAD, "Load");
+
+            AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hMenu, "Options");
+            SetMenu(hwnd, hMenubar);
+            break;
+        }
+
+        case WM_COMMAND:
+            switch (LOWORD(wp)) {
+                case ID_DRAW_DDA:
+                    toolSelected = ID_DRAW_DDA;
+                    break;
+
+                case ID_COLOR_PICKER: {
+                    // Color picker bta3t c++
+                    CHOOSECOLOR cc = { sizeof(CHOOSECOLOR) };
+                    static COLORREF acrCustClr[16];
+                    cc.hwndOwner = hwnd;
+                    cc.lpCustColors = acrCustClr;
+                    cc.rgbResult = currentColor;
+                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                    if (ChooseColor(&cc)) currentColor = cc.rgbResult;
+                    break;
+                }
+                case ID_MENU_SAVE: {
+                    ofstream out("shapes.dat", ios::binary);
+                    size_t count = DDAlines.size();
+                    out.write((char*)&count, sizeof(count));
+                    for (DDALine& line : DDAlines)
+                        out.write((char*)&line, sizeof(DDALine));
+                    out.close();
+                    break;
+                }
+
+                case ID_MENU_LOAD: {
+                    ifstream in("shapes.dat", ios::binary);
+                    if (in) {
+                        DDAlines.clear();
+                        size_t count;
+                        in.read((char*)&count, sizeof(count));
+                        for (size_t i = 0; i < count; ++i) {
+                            DDALine line;
+                            in.read((char*)&line, sizeof(DDALine));
+                            DDAlines.push_back(line);
+                        }
+                        InvalidateRect(hwnd, NULL, TRUE);
+                    }
+                    break;
+                }
+                case ID_CLEAR_SCREEN:
+                    DDAlines.clear();
+                    InvalidateRect(hwnd, NULL, TRUE);
+                    break;
+            }
+            break;
+
         case WM_LBUTTONDOWN:
-            hdc = GetDC(hwnd);
-        ReleaseDC(hwnd, hdc);
-        break;
+            if (toolSelected == ID_DRAW_DDA) {
+                isDrawing = true;
+                startPoint.x = LOWORD(lp);
+                startPoint.y = HIWORD(lp);
+            }
+            break;
+
         case WM_LBUTTONUP:
-            hdc = GetDC(hwnd);
-        ReleaseDC(hwnd, hdc);
-        break;
+            if (toolSelected == ID_DRAW_DDA && isDrawing) {
+                POINT endPoint;
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+                DrawLineDDA(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                DDALine newLine = { startPoint, endPoint, currentColor };
+                DDAlines.push_back(newLine);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+            }
+            break;
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            for (const DDALine& line : DDAlines) {
+                DrawLineDDA(hdc, line.start.x, line.start.y, line.end.x, line.end.y, line.color);
+            }
+            EndPaint(hwnd, &ps);
+            break;
+        }
         case WM_SETCURSOR:
             SetCursor(LoadCursor(NULL, IDC_CROSS));  // Change to crosshair
         return TRUE;
@@ -68,7 +183,7 @@ int Round(double x)
     return (int)(x + 0.5);
 }
 
-
+// dda line is missing inverted slope drawing handling
 void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c)
 {
     int dx = x2 - x1, dy = y2 - y1;
