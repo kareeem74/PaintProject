@@ -26,6 +26,7 @@ std::vector<DDALine> DDAlines;
 COLORREF currentColor = RGB(0, 0, 0);
 bool isDrawing = false;
 POINT startPoint;
+POINT endPoint;
 
 // Function declarations
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp);
@@ -47,7 +48,7 @@ int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
     wc.hInstance = hi;
     RegisterClass(&wc);
     HWND hwnd = CreateWindow("PaintCLass", "Paint", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, hi, 0);
-    ShowWindow(hwnd, nsh);
+    ShowWindow(hwnd, SW_SHOWMAXIMIZED);
     UpdateWindow(hwnd);
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0) > 0)
@@ -88,6 +89,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             switch (LOWORD(wp)) {
                 case ID_DRAW_DDA:
                     toolSelected = ID_DRAW_DDA;
+                    cout << "[Tool]   DDA Line Tool selected." << endl;
                     break;
 
                 case ID_COLOR_PICKER: {
@@ -99,6 +101,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     cc.rgbResult = currentColor;
                     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
                     if (ChooseColor(&cc)) currentColor = cc.rgbResult;
+                    cout << "[Action] Color changed: " << currentColor << endl;
                     break;
                 }
                 case ID_MENU_SAVE: {
@@ -108,6 +111,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     for (DDALine& line : DDAlines)
                         out.write((char*)&line, sizeof(DDALine));
                     out.close();
+                    cout << "\n[Action] Drawing saved\n";
                     break;
                 }
 
@@ -124,11 +128,13 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                         }
                         InvalidateRect(hwnd, NULL, TRUE);
                     }
+                    cout << "\n[Action] File loaded\n";
                     break;
                 }
                 case ID_CLEAR_SCREEN:
                     DDAlines.clear();
                     InvalidateRect(hwnd, NULL, TRUE);
+                    cout << "\n[Action] Screen cleared\n";
                     break;
             }
             break;
@@ -139,11 +145,11 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
             }
+
             break;
 
         case WM_LBUTTONUP:
             if (toolSelected == ID_DRAW_DDA && isDrawing) {
-                POINT endPoint;
                 endPoint.x = LOWORD(lp);
                 endPoint.y = HIWORD(lp);
 
@@ -153,7 +159,10 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 DDAlines.push_back(newLine);
                 ReleaseDC(hwnd, hdc);
                 isDrawing = false;
+                cout << "[Draw]   DDA line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                    endPoint.x << "," << endPoint.y << ")" << endl;
             }
+
             break;
 
         case WM_PAINT: {
