@@ -12,14 +12,12 @@ enum ShapeType {
     SHAPE_CIRCLE,
 };
 
-
 // Line algorithms
 enum LineAlgorithm {
     DDA,
-    MIDPOINT,
+    BRESENHAM,
     PARAMETRIC,
 };
-
 
 // Shape struct
 struct Shape {
@@ -27,22 +25,20 @@ struct Shape {
     int algorithm;
 
     union {
-        struct { POINT start, end; COLORREF color; } DDALine;
+        struct { POINT start, end; COLORREF color; } Line;
     };
 };
-
 
 // Canvas info to save and load
 std::vector<Shape> shapes;
 
-
 // Menu Options IDs
-#define ID_DRAW_DDA       101
-#define ID_COLOR_PICKER   102
-#define ID_CLEAR_SCREEN   103
-#define ID_MENU_SAVE      104
-#define ID_MENU_LOAD      105
-
+#define ID_MENU_SAVE      101
+#define ID_MENU_LOAD      102
+#define ID_COLOR_PICKER   103
+#define ID_CLEAR_SCREEN   104
+#define ID_DRAW_DDA       105
+#define ID_DRAW_BRESENHAM 106
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -50,11 +46,10 @@ bool isDrawing = false;
 POINT startPoint;
 POINT endPoint;
 
-
 // Function declarations
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp);
 void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
-
+void DrawLineBresenham(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
@@ -102,7 +97,8 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
             HMENU hToolMenu = CreateMenu();
             AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hToolMenu, "Tools");
-            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_DDA,      "Draw DDA Line");
+            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_DDA, "Draw DDA Line");
+            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_BRESENHAM, "Draw Bresenham Line");
 
 
             AppendMenu(hMenubar, MF_STRING, ID_COLOR_PICKER,  "Choose Color");
@@ -117,6 +113,12 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 case ID_DRAW_DDA: {
                     toolSelected = ID_DRAW_DDA;
                     cout << "[Tool]   DDA Line Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_BRESENHAM: {
+                    toolSelected = ID_DRAW_BRESENHAM;
+                    cout << "[Tool]   Bresenham Line Tool selected." << endl;
                     break;
                 }
 
@@ -195,7 +197,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             break;
 
         case WM_LBUTTONDOWN:
-            if (toolSelected == ID_DRAW_DDA) {
+            if (toolSelected == ID_DRAW_DDA || toolSelected == ID_DRAW_BRESENHAM) {
                 isDrawing = true;
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
@@ -208,11 +210,11 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 endPoint.y = HIWORD(lp);
 
                 HDC hdc = GetDC(hwnd);
-                DrawLineDDA(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                DrawLineBresenham(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newLine = {
                     .type = SHAPE_LINE,
                     .algorithm = DDA,
-                    .DDALine = {
+                    .Line = {
                         {startPoint.x, startPoint.y},
                         {endPoint.x, endPoint.y},
                         currentColor
@@ -224,6 +226,28 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 cout << "[Draw]   DDA line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
+            else if (toolSelected == ID_DRAW_BRESENHAM && isDrawing) {
+                cout << toolSelected;
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+                DrawLineBresenham(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                Shape newLine = {
+                    .type = SHAPE_LINE,
+                    .algorithm = BRESENHAM,
+                    .Line = {
+                        {startPoint.x, startPoint.y},
+                        {endPoint.x, endPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newLine);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   Bresenham line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                    endPoint.x << "," << endPoint.y << ")" << endl;
+            }
             break;
 
         case WM_PAINT: {
@@ -232,10 +256,13 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             for (const Shape& shape : shapes) {
                 if (shape.type == SHAPE_LINE) {
                     if (shape.algorithm == DDA) {
-                        DrawLineDDA(hdc, shape.DDALine.start.x, shape.DDALine.start.y,
-                            shape.DDALine.end.x, shape.DDALine.end.y, shape.DDALine.color);
+                        DrawLineDDA(hdc, shape.Line.start.x, shape.Line.start.y,
+                            shape.Line.end.x, shape.Line.end.y, shape.Line.color);
                     }
-
+                    else if (shape.algorithm == BRESENHAM) {
+                        DrawLineBresenham(hdc, shape.Line.start.x, shape.Line.start.y,
+                            shape.Line.end.x, shape.Line.end.y, shape.Line.color);
+                    }
                 }
             }
             EndPaint(hwnd, &ps);
@@ -253,39 +280,79 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
     return 0;
 }
 
-
 int Round(double x)
 {
     return (int)(x + 0.5);
 }
 
-// dda line is missing inverted slope drawing handling
-void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c)
+void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c)
 {
     int dx = x2 - x1, dy = y2 - y1;
+
     SetPixel(hdc, x1, y1, c);
-    if (abs(dx) >= abs(dy))
-    {
-        double m = (double)dy / dx;
-        int x = x1;
-        double y = y1;
-        while (x < x2)
-        {
-            x++;
+    if (abs(dx) >= abs(dy)) {
+        int x = x1, step = (dx > 0) ? 1 : -1;
+        double y = y1, m = (double)dy / dx;
+        m *= step;
+        while (x != x2) {
+            x += step;
             y += m;
             SetPixel(hdc, x, Round(y), c);
         }
     }
     else {
-        double mi = (double)dx / dy;
-        int y = y1;
-        double x = x1;
-        while (y < y2)
-        {
-            y++;
-            x += mi;
-            SetPixel(hdc, Round(x),y, c);
+        int y = y1, step = (dy > 0) ? 1 : -1;
+        double x = x1, m = (double)dx / dy;
+        m *= step;
+        while (y != y2) {
+            y += step;
+            x += m;
+            SetPixel(hdc, Round(x), y, c);
         }
-
     }
 }
+
+void DrawLineBresenham(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c) {
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+
+    int sx = (x2 > x1) ? 1 : -1;
+    int sy = (y2 > y1) ? 1 : -1;
+
+    int x = x1, y = y1;
+
+    SetPixel(hdc, x, y, c);
+
+    if (dx > dy) {
+        int d = 2 * dy - dx;
+        int d1 = 2 * (dy - dx);
+        int d2 = 2 * dy;
+
+        while (x != x2) {
+            x += sx;
+            if (d < 0) {
+                d += d2;
+            } else {
+                y += sy;
+                d += d1;
+            }
+            SetPixel(hdc, x, y, c);
+        }
+    } else {
+        int d = 2 * dx - dy;
+        int d1 = 2 * (dx - dy);
+        int d2 = 2 * dx;
+
+        while (y != y2) {
+            y += sy;
+            if (d < 0) {
+                d += d2;
+            } else {
+                x += sx;
+                d += d1;
+            }
+            SetPixel(hdc, x, y, c);
+        }
+    }
+}
+
