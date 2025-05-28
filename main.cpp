@@ -6,27 +6,50 @@
 
 using namespace std;
 
-struct DDALine {
-    POINT start;
-    POINT end;
-    COLORREF color;
+// Shapes types
+enum ShapeType {
+    SHAPE_LINE,
+    SHAPE_CIRCLE,
 };
 
-std::vector<DDALine> DDAlines;
+
+// Line algorithms
+enum LineAlgorithm {
+    DDA,
+    MIDPOINT,
+    PARAMETRIC,
+};
 
 
+// Shape struct
+struct Shape {
+    ShapeType type;
+    int algorithm;
 
+    union {
+        struct { POINT start, end; COLORREF color; } DDALine;
+    };
+};
+
+
+// Canvas info to save and load
+std::vector<Shape> shapes;
+
+
+// Menu Options IDs
 #define ID_DRAW_DDA       101
 #define ID_COLOR_PICKER   102
 #define ID_CLEAR_SCREEN   103
 #define ID_MENU_SAVE      104
 #define ID_MENU_LOAD      105
 
+
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
 bool isDrawing = false;
 POINT startPoint;
 POINT endPoint;
+
 
 // Function declarations
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp);
@@ -72,25 +95,30 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
         case WM_CREATE: {
             HMENU hMenubar = CreateMenu();
 
-            // Options menu
-            HMENU hMenu = CreateMenu();
-            AppendMenu(hMenu, MF_STRING, ID_DRAW_DDA,      "Draw DDA Line");
-            AppendMenu(hMenu, MF_STRING, ID_COLOR_PICKER,  "Choose Color");
-            AppendMenu(hMenu, MF_STRING, ID_CLEAR_SCREEN,  "Clear Screen");
-            AppendMenu(hMenu, MF_STRING, ID_MENU_SAVE, "Save");
-            AppendMenu(hMenu, MF_STRING, ID_MENU_LOAD, "Load");
+            HMENU hFileMenu = CreateMenu();
+            AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hFileMenu, "File");
+            AppendMenu(hFileMenu, MF_STRING, ID_MENU_SAVE, "Save");
+            AppendMenu(hFileMenu, MF_STRING, ID_MENU_LOAD, "Load");
 
-            AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hMenu, "Options");
+            HMENU hToolMenu = CreateMenu();
+            AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hToolMenu, "Tools");
+            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_DDA,      "Draw DDA Line");
+
+
+            AppendMenu(hMenubar, MF_STRING, ID_COLOR_PICKER,  "Choose Color");
+            AppendMenu(hMenubar, MF_STRING, ID_CLEAR_SCREEN,  "Clear Screen");
+
             SetMenu(hwnd, hMenubar);
             break;
         }
 
         case WM_COMMAND:
             switch (LOWORD(wp)) {
-                case ID_DRAW_DDA:
+                case ID_DRAW_DDA: {
                     toolSelected = ID_DRAW_DDA;
                     cout << "[Tool]   DDA Line Tool selected." << endl;
                     break;
+                }
 
                 case ID_COLOR_PICKER: {
                     // Color picker bta3t c++
@@ -104,38 +132,65 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     cout << "[Action] Color changed: " << currentColor << endl;
                     break;
                 }
+
                 case ID_MENU_SAVE: {
-                    ofstream out("shapes.dat", ios::binary);
-                    size_t count = DDAlines.size();
-                    out.write((char*)&count, sizeof(count));
-                    for (DDALine& line : DDAlines)
-                        out.write((char*)&line, sizeof(DDALine));
-                    out.close();
-                    cout << "\n[Action] Drawing saved\n";
+                    OPENFILENAME ofn = { sizeof(ofn) };
+                    char fileName[MAX_PATH] = "";
+                    ofn.hwndOwner = hwnd;
+                    ofn.lpstrFilter = "Paint Files (*.dat)\0*.dat\0All Files\0*.*\0";
+                    ofn.lpstrFile = fileName;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.lpstrDefExt = "pnt";
+                    ofn.Flags = OFN_OVERWRITEPROMPT;
+
+                    if (GetSaveFileName(&ofn)) {
+                        FILE *f = fopen(fileName, "wb");
+                        if (!f) {
+                            MessageBox(hwnd, "Failed to open file for saving.", "Error", MB_OK | MB_ICONERROR);
+                        }
+                        ofstream out(fileName, ios::binary);
+                        size_t count = shapes.size();
+                        out.write((char*)&count, sizeof(count));
+                        for (Shape& shape : shapes)
+                            out.write((char*)&shape, sizeof(Shape));
+                        out.close();
+                        cout << "\n[Action] Drawing saved\n";
+                    }
                     break;
                 }
 
-                case ID_MENU_LOAD: {
-                    ifstream in("shapes.dat", ios::binary);
-                    if (in) {
-                        DDAlines.clear();
-                        size_t count;
-                        in.read((char*)&count, sizeof(count));
-                        for (size_t i = 0; i < count; ++i) {
-                            DDALine line;
-                            in.read((char*)&line, sizeof(DDALine));
-                            DDAlines.push_back(line);
+                case ID_MENU_LOAD: {OPENFILENAME ofn = { sizeof(ofn) };
+                    char fileName[MAX_PATH] = "";
+                    ofn.hwndOwner = hwnd;
+                    ofn.lpstrFilter = "Paint Files (*.dat)\0*.dat\0All Files\0*.*\0";
+                    ofn.lpstrFile = fileName;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.Flags = OFN_FILEMUSTEXIST;
+                    if (GetOpenFileName(&ofn)) {
+                        ifstream in(fileName, ios::binary);
+                        if (in) {
+                            shapes.clear();
+                            size_t count;
+                            in.read((char*)&count, sizeof(count));
+                            for (size_t i = 0; i < count; ++i) {
+                                Shape shape;
+                                in.read((char*)&shape, sizeof(Shape));
+                                shapes.push_back(shape);
+                            }
+                            InvalidateRect(hwnd, NULL, TRUE);
                         }
-                        InvalidateRect(hwnd, NULL, TRUE);
+                        cout << "\n[Action] File loaded\n";
                     }
-                    cout << "\n[Action] File loaded\n";
                     break;
                 }
-                case ID_CLEAR_SCREEN:
-                    DDAlines.clear();
+
+                case ID_CLEAR_SCREEN: {
+                    shapes.clear();
                     InvalidateRect(hwnd, NULL, TRUE);
                     cout << "\n[Action] Screen cleared\n";
                     break;
+                }
+
             }
             break;
 
@@ -145,7 +200,6 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
             }
-
             break;
 
         case WM_LBUTTONUP:
@@ -155,27 +209,40 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                 HDC hdc = GetDC(hwnd);
                 DrawLineDDA(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
-                DDALine newLine = { startPoint, endPoint, currentColor };
-                DDAlines.push_back(newLine);
+                Shape newLine = {
+                    .type = SHAPE_LINE,
+                    .algorithm = DDA,
+                    .DDALine = {
+                        {startPoint.x, startPoint.y},
+                        {endPoint.x, endPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newLine);
                 ReleaseDC(hwnd, hdc);
                 isDrawing = false;
                 cout << "[Draw]   DDA line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
-
             break;
 
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            for (const DDALine& line : DDAlines) {
-                DrawLineDDA(hdc, line.start.x, line.start.y, line.end.x, line.end.y, line.color);
+            for (const Shape& shape : shapes) {
+                if (shape.type == SHAPE_LINE) {
+                    if (shape.algorithm == DDA) {
+                        DrawLineDDA(hdc, shape.DDALine.start.x, shape.DDALine.start.y,
+                            shape.DDALine.end.x, shape.DDALine.end.y, shape.DDALine.color);
+                    }
+
+                }
             }
             EndPaint(hwnd, &ps);
             break;
         }
         case WM_SETCURSOR:
-            SetCursor(LoadCursor(NULL, IDC_CROSS));  // Change to crosshair
+            SetCursor(LoadCursor(NULL, IDC_CROSS));  // Change to cursor
         return TRUE;
         case WM_CLOSE:
             DestroyWindow(hwnd); break;
