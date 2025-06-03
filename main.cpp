@@ -1,6 +1,8 @@
 #include <iostream>
+#include <math.h>
 #include <Windows.h>
 #include <commdlg.h> // color picker
+#include <complex.h>
 #include <fstream>
 #include <vector>
 
@@ -10,14 +12,17 @@ using namespace std;
 enum ShapeType {
     SHAPE_LINE,
     SHAPE_CIRCLE,
+    SHAPE_ELLIPSE,
 };
 
-// Line algorithms
-enum LineAlgorithm {
+// algorithms
+enum Algorithm {
     DDA,
-    BRESENHAM,
+    MIDPOINT,
     PARAMETRIC,
+    POLAR,
 };
+
 
 // Shape struct
 struct Shape {
@@ -26,6 +31,8 @@ struct Shape {
 
     union {
         struct { POINT start, end; COLORREF color; } Line;
+        struct { POINT c; int radius; COLORREF color; } Circle;
+        struct { POINT c, r; COLORREF color; } Ellipse;
     };
 };
 
@@ -33,12 +40,15 @@ struct Shape {
 std::vector<Shape> shapes;
 
 // Menu Options IDs
-#define ID_MENU_SAVE      101
-#define ID_MENU_LOAD      102
-#define ID_COLOR_PICKER   103
-#define ID_CLEAR_SCREEN   104
-#define ID_DRAW_DDA       105
-#define ID_DRAW_BRESENHAM 106
+#define ID_MENU_SAVE                101
+#define ID_MENU_LOAD                102
+#define ID_COLOR_PICKER             103
+#define ID_CLEAR_SCREEN             104
+#define ID_DRAW_DDA_LINE            105
+#define ID_DRAW_MIDPOINT_LINE       106
+#define ID_DRAW_MIDPOINT_CIRCLE     107
+#define ID_DRAW_POLAR_CIRCLE        108
+#define ID_DRAW_PARAMETRIC_ELLIPSE  109
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -49,7 +59,10 @@ POINT endPoint;
 // Function declarations
 LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp);
 void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
-void DrawLineBresenham(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
+void DrawLineMidpoint(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
+void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color);
+void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color);
+void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
@@ -57,7 +70,7 @@ int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursor(NULL, IDC_CROSS);
     wc.hIcon = LoadIcon(NULL, IDI_WINLOGO);
     wc.lpszClassName = "PaintClass";
     wc.lpszMenuName = NULL;
@@ -95,13 +108,29 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             AppendMenu(hFileMenu, MF_STRING, ID_MENU_SAVE, "Save");
             AppendMenu(hFileMenu, MF_STRING, ID_MENU_LOAD, "Load");
 
+
             HMENU hToolMenu = CreateMenu();
+
+            HMENU hLineMenu = CreateMenu();
+            AppendMenu(hLineMenu, MF_STRING, ID_DRAW_DDA_LINE, "DDA");
+            AppendMenu(hLineMenu, MF_STRING, ID_DRAW_MIDPOINT_LINE, "Midpoint");
+            AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hLineMenu, "Line");
+
+            HMENU hCircleMenu = CreateMenu();
+            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_MIDPOINT_CIRCLE, "Outline Midpoint");
+            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_POLAR_CIRCLE, "Outline Polar");
+            AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hCircleMenu, "Circle");
+
+            HMENU hEllipseMenu = CreateMenu();
+            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_PARAMETRIC_ELLIPSE, "Outline Parametric");
+            AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hEllipseMenu, "Ellipse");
+
+
             AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hToolMenu, "Tools");
-            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_DDA, "Draw DDA Line");
-            AppendMenu(hToolMenu, MF_STRING, ID_DRAW_BRESENHAM, "Draw Bresenham Line");
 
 
             AppendMenu(hMenubar, MF_STRING, ID_COLOR_PICKER,  "Choose Color");
+
             AppendMenu(hMenubar, MF_STRING, ID_CLEAR_SCREEN,  "Clear Screen");
 
             SetMenu(hwnd, hMenubar);
@@ -110,15 +139,33 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
         case WM_COMMAND:
             switch (LOWORD(wp)) {
-                case ID_DRAW_DDA: {
-                    toolSelected = ID_DRAW_DDA;
+                case ID_DRAW_DDA_LINE: {
+                    toolSelected = ID_DRAW_DDA_LINE;
                     cout << "[Tool]   DDA Line Tool selected." << endl;
                     break;
                 }
 
-                case ID_DRAW_BRESENHAM: {
-                    toolSelected = ID_DRAW_BRESENHAM;
-                    cout << "[Tool]   Bresenham Line Tool selected." << endl;
+                case ID_DRAW_MIDPOINT_LINE: {
+                    toolSelected = ID_DRAW_MIDPOINT_LINE;
+                    cout << "[Tool]   Midpoint Line Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_MIDPOINT_CIRCLE: {
+                    toolSelected = ID_DRAW_MIDPOINT_CIRCLE;
+                    cout << "[Tool]   Midpoint Circle Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_POLAR_CIRCLE: {
+                    toolSelected = ID_DRAW_POLAR_CIRCLE;
+                    cout << "[Tool]   Polar Circle Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_PARAMETRIC_ELLIPSE: {
+                    toolSelected = ID_DRAW_PARAMETRIC_ELLIPSE;
+                    cout << "[Tool]   Parametric Ellipse Tool selected." << endl;
                     break;
                 }
 
@@ -197,7 +244,9 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             break;
 
         case WM_LBUTTONDOWN:
-            if (toolSelected == ID_DRAW_DDA || toolSelected == ID_DRAW_BRESENHAM) {
+        if (toolSelected == ID_DRAW_DDA_LINE || toolSelected == ID_DRAW_MIDPOINT_LINE ||
+            toolSelected == ID_DRAW_MIDPOINT_CIRCLE || toolSelected == ID_DRAW_POLAR_CIRCLE ||
+            toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE) {
                 isDrawing = true;
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
@@ -205,12 +254,12 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             break;
 
         case WM_LBUTTONUP:
-            if (toolSelected == ID_DRAW_DDA && isDrawing) {
+            if (toolSelected == ID_DRAW_DDA_LINE && isDrawing) {
                 endPoint.x = LOWORD(lp);
                 endPoint.y = HIWORD(lp);
 
                 HDC hdc = GetDC(hwnd);
-                DrawLineBresenham(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                DrawLineMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newLine = {
                     .type = SHAPE_LINE,
                     .algorithm = DDA,
@@ -226,16 +275,15 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 cout << "[Draw]   DDA line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
-            else if (toolSelected == ID_DRAW_BRESENHAM && isDrawing) {
-                cout << toolSelected;
+            else if (toolSelected == ID_DRAW_MIDPOINT_LINE && isDrawing) {
                 endPoint.x = LOWORD(lp);
                 endPoint.y = HIWORD(lp);
 
                 HDC hdc = GetDC(hwnd);
-                DrawLineBresenham(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                DrawLineMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newLine = {
                     .type = SHAPE_LINE,
-                    .algorithm = BRESENHAM,
+                    .algorithm = MIDPOINT,
                     .Line = {
                         {startPoint.x, startPoint.y},
                         {endPoint.x, endPoint.y},
@@ -245,7 +293,75 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 shapes.push_back(newLine);
                 ReleaseDC(hwnd, hdc);
                 isDrawing = false;
-                cout << "[Draw]   Bresenham line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                cout << "[Draw]   Midpoint (Bresenham) line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                    endPoint.x << "," << endPoint.y << ")" << endl;
+            }
+            else if (toolSelected == ID_DRAW_MIDPOINT_CIRCLE && isDrawing) {
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+
+                int radius = sqrt(pow(endPoint.x - startPoint.x, 2) + pow(endPoint.y - startPoint.y, 2));
+                DrawCircleMidpoint(hdc, startPoint.x, startPoint.y, radius, currentColor);
+                Shape newCircle = {
+                    .type = SHAPE_CIRCLE,
+                    .algorithm = MIDPOINT,
+                    .Circle = {
+                        {startPoint.x, startPoint.y},
+                        radius,
+                        currentColor
+                    }
+                };
+                shapes.push_back(newCircle);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   Midpoint (Bresenham) circle drawn, center (" << startPoint.x << "," << startPoint.y
+                << ") radius: " << radius << "." << endl;
+            }
+            else if (toolSelected == ID_DRAW_POLAR_CIRCLE && isDrawing) {
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+
+                int radius = sqrt(pow(endPoint.x - startPoint.x, 2) + pow(endPoint.y - startPoint.y, 2));
+                DrawCirclePolar(hdc, startPoint.x, startPoint.y, radius, currentColor);
+                Shape newCircle = {
+                    .type = SHAPE_CIRCLE,
+                    .algorithm = POLAR,
+                    .Circle = {
+                        {startPoint.x, startPoint.y},
+                        radius,
+                        currentColor
+                    }
+                };
+                shapes.push_back(newCircle);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   Polar circle drawn, center (" << startPoint.x << "," << startPoint.y
+                << ") radius: " << radius << "." << endl;
+            }
+            else if (toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE && isDrawing) {
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+
+                DrawEllipseParametric(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                Shape newCircle = {
+                    .type = SHAPE_CIRCLE,
+                    .algorithm = POLAR,
+                    .Ellipse = {
+                        {startPoint.x, startPoint.y},
+                        {endPoint.x, endPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newCircle);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   Parametric Elipse drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
             break;
@@ -259,22 +375,38 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                         DrawLineDDA(hdc, shape.Line.start.x, shape.Line.start.y,
                             shape.Line.end.x, shape.Line.end.y, shape.Line.color);
                     }
-                    else if (shape.algorithm == BRESENHAM) {
-                        DrawLineBresenham(hdc, shape.Line.start.x, shape.Line.start.y,
+                    else if (shape.algorithm == MIDPOINT) {
+                        DrawLineMidpoint(hdc, shape.Line.start.x, shape.Line.start.y,
                             shape.Line.end.x, shape.Line.end.y, shape.Line.color);
+                    }
+                }
+                else if (shape.type == SHAPE_CIRCLE) {
+                    if (shape.algorithm == MIDPOINT) {
+                        DrawCircleMidpoint(hdc, shape.Circle.c.x, shape.Circle.c.y,
+                            shape.Circle.radius, shape.Line.color);
+                    }
+                    else if (shape.algorithm == POLAR) {
+                        DrawCirclePolar(hdc, shape.Circle.c.x, shape.Circle.c.y,
+                            shape.Circle.radius, shape.Line.color);
+                    }
+                }
+                else if (shape.type == SHAPE_ELLIPSE) {
+                    if (shape.algorithm == PARAMETRIC) {
+                        DrawEllipseParametric(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
+                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
                     }
                 }
             }
             EndPaint(hwnd, &ps);
             break;
         }
-        case WM_SETCURSOR:
-            SetCursor(LoadCursor(NULL, IDC_CROSS));  // Change to cursor
-        return TRUE;
+
         case WM_CLOSE:
             DestroyWindow(hwnd); break;
+
         case WM_DESTROY:
             PostQuitMessage(0); break;
+
         default:return DefWindowProc(hwnd, m, wp, lp);
     }
     return 0;
@@ -312,7 +444,7 @@ void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c)
     }
 }
 
-void DrawLineBresenham(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c) {
+void DrawLineMidpoint(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c) {
     int dx = abs(x2 - x1);
     int dy = abs(y2 - y1);
 
@@ -356,3 +488,38 @@ void DrawLineBresenham(HDC hdc, int x1, int y1, int x2, int y2, COLORREF c) {
     }
 }
 
+void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color) {
+    int x=0, y=r, d=1-r;
+    while(x<=y){
+        POINT pts[8] = {
+            {xc+x, yc+y},{xc-x, yc+y},
+            {xc+x, yc-y},{xc-x, yc-y},
+            {xc+y, yc+x},{xc-y, yc+x},
+            {xc+y, yc-x},{xc-y, yc-x}
+        };
+        for(auto&p:pts) SetPixel(hdc,p.x,p.y,color);
+        if(d<0) d+=2*x+3;
+        else    { d+=2*(x-y)+5; y--; }
+        x++;
+    }
+}
+
+void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color) {
+    double theta=0, dtheta=1.0/r;
+    while(theta<=2*M_PI){
+        int x=xc+(int)(r*cos(theta));
+        int y=yc+(int)(r*sin(theta));
+        SetPixel(hdc,x,y,color);
+        theta+=dtheta;
+    }
+}
+
+void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color) {
+    double t=0, dt=1.0/max(rx,ry);
+    while(t<=2*M_PI){
+        int x=xc+(int)(rx*cos(t));
+        int y=yc+(int)(ry*sin(t));
+        SetPixel(hdc,x,y,color);
+        t+=dt;
+    }
+}
