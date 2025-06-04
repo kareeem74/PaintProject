@@ -5,22 +5,52 @@
 #include <complex.h>
 #include <fstream>
 #include <vector>
+#include <stack>
 
 using namespace std;
+
+// TODO: list
+// [*] Change the background of window to be white
+// [*] Try to change the shape of your window mouse
+// [*] User must interact with window using mouse only
+// [*] Try to make combination between your console and window
+// [*] Give users the option to choose shape color before drawing from menu
+// [*] Implement item to clear screen from shapes
+// [*] Implement save function for all data in screen
+// [*] Implement load function to load data from files
+// [ ] Implement line algorithms [DDA, Midpoint and parametric]
+// [ ] Implement Circle algorithms [Direct, Polar, iterative Polar, midpoint and modified Midpoint]
+// [ ] Filling Circle with lines after taking filling quarter from user
+// [ ] Filling Circle with other circles after taking filling quarter from user
+// [ ] Filling Square with Hermit Curve [Vertical]
+// [ ] Filling Rectangle with Bezier Curve [horizontal]
+// [ ] Convex and Non-Convex Filling Algorithm
+// [ ] Recursive and Non-Recursive Flood Fill
+// [ ] Cardinal Spline Curve
+// [ ] Ellipse Algorithms [Direct, polar and midpoint]
+// [ ] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
+// [ ] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
+// BONUS
+// [ ] Clipping algorithms using circle as a Clipping Window to clip [Point, Line]
+
 
 // Shapes types
 enum ShapeType {
     SHAPE_LINE,
     SHAPE_CIRCLE,
     SHAPE_ELLIPSE,
+    SHAPE_FILL,
 };
 
 // algorithms
 enum Algorithm {
+    DIRECT,
     DDA,
     MIDPOINT,
     PARAMETRIC,
     POLAR,
+    STACK,
+    RECURSIVE,
 };
 
 
@@ -33,8 +63,17 @@ struct Shape {
         struct { POINT start, end; COLORREF color; } Line;
         struct { POINT c; int radius; COLORREF color; } Circle;
         struct { POINT c, r; COLORREF color; } Ellipse;
+        struct { POINT p; COLORREF color; } Fill;
     };
 };
+
+typedef POINT Point;
+void InitConsole() {
+    AllocConsole();
+    freopen("CONIN$", "r", stdin);
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+}
 
 // Canvas info to save and load
 std::vector<Shape> shapes;
@@ -49,6 +88,8 @@ std::vector<Shape> shapes;
 #define ID_DRAW_MIDPOINT_CIRCLE     107
 #define ID_DRAW_POLAR_CIRCLE        108
 #define ID_DRAW_PARAMETRIC_ELLIPSE  109
+#define ID_DRAW_MIDPOINT_ELLIPSE    110
+#define ID_DRAW_FILL                111
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -62,6 +103,7 @@ void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
 void DrawLineMidpoint(HDC hdc, int x1, int y1, int x2, int y2,COLORREF c);
 void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color);
 void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color);
+void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
@@ -122,7 +164,8 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hCircleMenu, "Circle");
 
             HMENU hEllipseMenu = CreateMenu();
-            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_PARAMETRIC_ELLIPSE, "Outline Parametric");
+            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_MIDPOINT_ELLIPSE, "Outline Parametric");
+            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_PARAMETRIC_ELLIPSE, "Outline Midpoint");
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hEllipseMenu, "Ellipse");
 
 
@@ -166,6 +209,12 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 case ID_DRAW_PARAMETRIC_ELLIPSE: {
                     toolSelected = ID_DRAW_PARAMETRIC_ELLIPSE;
                     cout << "[Tool]   Parametric Ellipse Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_MIDPOINT_ELLIPSE: {
+                    toolSelected = ID_DRAW_MIDPOINT_ELLIPSE;
+                    cout << "[Tool]   Midpoint Ellipse Tool selected." << endl;
                     break;
                 }
 
@@ -246,7 +295,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
         case WM_LBUTTONDOWN:
         if (toolSelected == ID_DRAW_DDA_LINE || toolSelected == ID_DRAW_MIDPOINT_LINE ||
             toolSelected == ID_DRAW_MIDPOINT_CIRCLE || toolSelected == ID_DRAW_POLAR_CIRCLE ||
-            toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE) {
+            toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE || toolSelected == ID_DRAW_MIDPOINT_ELLIPSE) {
                 isDrawing = true;
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
@@ -349,7 +398,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 HDC hdc = GetDC(hwnd);
 
                 DrawEllipseParametric(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
-                Shape newCircle = {
+                Shape newEllipse = {
                     .type = SHAPE_CIRCLE,
                     .algorithm = POLAR,
                     .Ellipse = {
@@ -358,10 +407,32 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                         currentColor
                     }
                 };
-                shapes.push_back(newCircle);
+                shapes.push_back(newEllipse);
                 ReleaseDC(hwnd, hdc);
                 isDrawing = false;
-                cout << "[Draw]   Parametric Elipse drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                cout << "[Draw]   Parametric Ellipse drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+                    endPoint.x << "," << endPoint.y << ")" << endl;
+            }
+            else if (toolSelected == ID_DRAW_MIDPOINT_ELLIPSE && isDrawing) {
+                endPoint.x = LOWORD(lp);
+                endPoint.y = HIWORD(lp);
+
+                HDC hdc = GetDC(hwnd);
+
+                DrawEllipseMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+                Shape newEllipse = {
+                    .type = SHAPE_CIRCLE,
+                    .algorithm = MIDPOINT,
+                    .Ellipse = {
+                        {startPoint.x, startPoint.y},
+                        {endPoint.x, endPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newEllipse);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   Midpoint Ellipse drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
             break;
@@ -392,6 +463,10 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 }
                 else if (shape.type == SHAPE_ELLIPSE) {
                     if (shape.algorithm == PARAMETRIC) {
+                        DrawEllipseParametric(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
+                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
+                    }
+                    else if (shape.algorithm == MIDPOINT) {
                         DrawEllipseParametric(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
                             shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
                     }
@@ -514,6 +589,29 @@ void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color) {
     }
 }
 
+void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color) {
+    double dx, dy, d1, d2, x=0, y=ry;
+    d1 = ry*ry - rx*rx*ry + 0.25*rx*rx;
+    dx = 2*ry*ry*x; dy = 2*rx*rx*y;
+    while(dx<dy){
+        SetPixel(hdc, xc+x, yc+y, color);
+        SetPixel(hdc, xc-x, yc+y, color);
+        SetPixel(hdc, xc+x, yc-y, color);
+        SetPixel(hdc, xc-x, yc-y, color);
+        if(d1<0) { x++; dx+=2*ry*ry; d1+=dx+ry*ry; }
+        else     { x++; y--; dx+=2*ry*ry; dy-=2*rx*rx; d1+=dx-dy+ry*ry; }
+    }
+    d2 = ry*ry*(x+0.5)*(x+0.5) + rx*rx*(y-1)*(y-1) - rx*rx*ry*ry;
+    while(y>0){
+        SetPixel(hdc, xc+x, yc+y, color);
+        SetPixel(hdc, xc-x, yc+y, color);
+        SetPixel(hdc, xc+x, yc-y, color);
+        SetPixel(hdc, xc-x, yc-y, color);
+        if(d2>0) { y--; dy-=2*rx*rx; d2+=rx*rx-dy; }
+        else     { y--; x++; dx+=2*ry*ry; dy-=2*rx*rx; d2+=dx-dy+rx*rx; }
+    }
+}
+
 void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color) {
     double t=0, dt=1.0/max(rx,ry);
     while(t<=2*M_PI){
@@ -521,5 +619,21 @@ void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF col
         int y=yc+(int)(ry*sin(t));
         SetPixel(hdc,x,y,color);
         t+=dt;
+    }
+}
+
+void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor) {
+    COLORREF oldColor = GetPixel(hdc,x,y);
+    if(oldColor==fillColor) return;
+    stack<Point> stk;
+    stk.push({x,y});
+    while(!stk.empty()){
+        Point p=stk.top(); stk.pop();
+        if(GetPixel(hdc,p.x,p.y)!=oldColor) continue;
+        SetPixel(hdc,p.x,p.y,fillColor);
+        stk.push({p.x+1,p.y});
+        stk.push({p.x-1,p.y});
+        stk.push({p.x,p.y+1});
+        stk.push({p.x,p.y-1});
     }
 }
