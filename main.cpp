@@ -9,7 +9,7 @@
 
 using namespace std;
 
-// TODO: list
+// TODO:
 // [*] Change the background of window to be white
 // [*] Try to change the shape of your window mouse
 // [*] User must interact with window using mouse only
