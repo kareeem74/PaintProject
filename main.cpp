@@ -26,7 +26,7 @@ using namespace std;
 // [ ] Filling Circle with other circles after taking filling quarter from user
 // [ ] Filling Square with Hermit Curve [Vertical]
 // [ ] Filling Rectangle with Bezier Curve [horizontal]
-// [ ] Convex and Non-Convex Filling Algorithm
+// [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
 // [ ] Cardinal Spline Curve
 // [*] Ellipse Algorithms [Direct, polar and midpoint]
