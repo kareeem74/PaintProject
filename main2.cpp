@@ -28,8 +28,8 @@ using namespace std;
 // [*] Recursive and Non-Recursive Flood Fill
 // [*] Cardinal Spline Curve
 // [*] Ellipse Algorithms [Direct, polar and midpoint]
-// [ ] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
-// [ ] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
+// [*] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
+// [*] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
 // BONUS
 // [ ] Clipping algorithms using circle as a Clipping Window to clip [Point, Line]
 
@@ -68,6 +68,10 @@ struct Shape {
 };
 
 typedef POINT Point;
+// struct Point {
+//     int x, y;
+//     Point(int _x=0, int _y=0) : x(_x), y(_y) {}
+// };
 void InitConsole() {
     AllocConsole();
     freopen("CONIN$", "r", stdin);
@@ -119,6 +123,10 @@ void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF col
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor);
 void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor);
 void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, COLORREF color);
+
+
+bool CohenSutherlandClip(int &x1, int &y1,int &x2, int &y2,int xmin, int ymin,int xmax, int ymax);
+vector<Point> SutherlandHodgmanPolygonClip(const vector<Point> &subject,const vector<Point> &clipWindow);
 
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
@@ -617,19 +625,22 @@ void DrawCircleDirect(HDC hdc, int xc, int yc, int r, COLORREF color) {
     }
 }
 
+void draw8Points(HDC hdc, int xc, int yc, int xi, int yi, COLORREF color) {
+    SetPixel(hdc, xc + xi, yc + yi, color);
+    SetPixel(hdc, xc - xi, yc + yi, color);
+    SetPixel(hdc, xc + xi, yc - yi, color);
+    SetPixel(hdc, xc - xi, yc - yi, color);
+    SetPixel(hdc, xc + yi, yc + xi, color);
+    SetPixel(hdc, xc - yi, yc + xi, color);
+    SetPixel(hdc, xc + yi, yc - xi, color);
+    SetPixel(hdc, xc - yi, yc - xi, color);
+}
 void DrawCircleIterativePolar(HDC hdc, int xc, int yc, int r, COLORREF color) {
     double x = r, y = 0;
     double theta = 0, dtheta = 1.0 / r;
     while (theta <= M_PI / 4) {
         int xi = static_cast<int>(round(x)), yi = static_cast<int>(round(y));
-        SetPixel(hdc, xc + xi, yc + yi, color);
-        SetPixel(hdc, xc - xi, yc + yi, color);
-        SetPixel(hdc, xc + xi, yc - yi, color);
-        SetPixel(hdc, xc - xi, yc - yi, color);
-        SetPixel(hdc, xc + yi, yc + xi, color);
-        SetPixel(hdc, xc - yi, yc + xi, color);
-        SetPixel(hdc, xc + yi, yc - xi, color);
-        SetPixel(hdc, xc - yi, yc - xi, color);
+        draw8Points(hdc,xc,yc,xi,yi, color);
 
         theta += dtheta;
         double x_new = r * cos(theta);
@@ -643,14 +654,7 @@ void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color) {
     int x = 0, y = r;
     int d = 1 - r;
     while (x <= y) {
-        SetPixel(hdc, xc + x, yc + y, color);
-        SetPixel(hdc, xc - x, yc + y, color);
-        SetPixel(hdc, xc + x, yc - y, color);
-        SetPixel(hdc, xc - x, yc - y, color);
-        SetPixel(hdc, xc + y, yc + x, color);
-        SetPixel(hdc, xc - y, yc + x, color);
-        SetPixel(hdc, xc + y, yc - x, color);
-        SetPixel(hdc, xc - y, yc - x, color);
+        draw8Points(hdc,xc,yc,x,y, color);
         if (d < 0) {
             d += 2 * x + 3;
         } else {
@@ -665,14 +669,7 @@ void DrawCircleModifiedMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color) 
     int x = 0, y = r;
     int d = 5 - 4 * r;
     while (x <= y) {
-        SetPixel(hdc, xc + x, yc + y, color);
-        SetPixel(hdc, xc - x, yc + y, color);
-        SetPixel(hdc, xc + x, yc - y, color);
-        SetPixel(hdc, xc - x, yc - y, color);
-        SetPixel(hdc, xc + y, yc + x, color);
-        SetPixel(hdc, xc - y, yc + x, color);
-        SetPixel(hdc, xc + y, yc - x, color);
-        SetPixel(hdc, xc - y, yc - x, color);
+        draw8Points(hdc,xc,yc,x,y, color);
         if (d < 0) {
             d += 8 * x + 12;
         } else {
@@ -843,4 +840,240 @@ void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, C
             SetPixel(hdc, Round(xf), Round(yf), color);
         }
     }
+}
+
+
+
+// Region‐code bits for Cohen–Sutherland
+const int INSIDE = 0;  // 0000
+const int LEFT   = 1;  // 0001
+const int RIGHT  = 2;  // 0010
+const int BOTTOM = 4;  // 0100
+const int TOP    = 8;  // 1000
+
+
+bool ClipPointRect(const Point &p, int xmin, int ymin, int xmax, int ymax) {
+    return (p.x >= xmin && p.x <= xmax && p.y >= ymin && p.y <= ymax);
+}
+
+static int ComputeRegionCodeRect(int x, int y, int xmin, int ymin, int xmax, int ymax) {
+    int code = INSIDE;
+    if (x < xmin)      code |= LEFT;
+    else if (x > xmax) code |= RIGHT;
+    if (y < ymin)      code |= BOTTOM;
+    else if (y > ymax) code |= TOP;
+    return code;
+}
+
+
+bool ClipLineRect(Point &p1, Point &p2, int xmin, int ymin, int xmax, int ymax) {
+    int x1 = p1.x, y1 = p1.y;
+    int x2 = p2.x, y2 = p2.y;
+    int code1 = ComputeRegionCodeRect(x1, y1, xmin, ymin, xmax, ymax);
+    int code2 = ComputeRegionCodeRect(x2, y2, xmin, ymin, xmax, ymax);
+    bool accept = false;
+
+    while (true) {
+        if ((code1 | code2) == 0) {
+            // Both endpoints inside
+            accept = true;
+            break;
+        } else if (code1 & code2) {
+            // Both share an outside zone → trivially reject
+            break;
+        } else {
+            // At least one endpoint is outside; pick it
+            int codeOut = (code1 != 0) ? code1 : code2;
+            int x, y;
+
+            if (codeOut & TOP) {
+                x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
+                y = ymax;
+            } else if (codeOut & BOTTOM) {
+                x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
+                y = ymin;
+            } else if (codeOut & RIGHT) {
+                y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1);
+                x = xmax;
+            } else { // LEFT
+                y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1);
+                x = xmin;
+            }
+
+            if (codeOut == code1) {
+                x1 = x;
+                y1 = y;
+                code1 = ComputeRegionCodeRect(x1, y1, xmin, ymin, xmax, ymax);
+            } else {
+                x2 = x;
+                y2 = y;
+                code2 = ComputeRegionCodeRect(x2, y2, xmin, ymin, xmax, ymax);
+            }
+        }
+    }
+
+    if (accept) {
+        p1.x = x1; p1.y = y1;
+        p2.x = x2; p2.y = y2;
+        return true;
+    }
+    return false;
+}
+
+static bool isInsideRect(const Point &P, const Point &A, const Point &B) {
+    int cross = (B.x - A.x) * (P.y - A.y) - (B.y - A.y) * (P.x - A.x);
+    return (cross >= 0);
+}
+
+static Point computeIntersectionRect(
+    const Point &S, const Point &P,
+    const Point &A, const Point &B
+) {
+    int x1 = S.x, y1 = S.y;
+    int x2 = P.x, y2 = P.y;
+    int x3 = A.x, y3 = A.y;
+    int x4 = B.x, y4 = B.y;
+
+    int denom = (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4);
+    if (denom == 0) {
+        // Parallel lines; fallback to P
+        return P;
+    }
+    int numX = (x1*y2 - y1*x2)*(x3 - x4) - (x1 - x2)*(x3*y4 - y3*x4);
+    int numY = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
+    int xi = numX / denom;
+    int yi = numY / denom;
+    return Point(xi, yi);
+}
+
+vector<Point> ClipPolygonRect(
+    const vector<Point> &subject,
+    int xmin, int ymin, int xmax, int ymax
+) {
+    // Define rectangle clip vertices in CCW:
+    vector<Point> clipWindow = {
+        { xmin, ymin }, { xmax, ymin },
+        { xmax, ymax }, { xmin, ymax }
+    };
+
+    vector<Point> output = subject;
+    int clipCount = static_cast<int>(clipWindow.size());
+
+    for (int i = 0; i < clipCount; ++i) {
+        Point A = clipWindow[i];
+        Point B = clipWindow[(i + 1) % clipCount];
+        vector<Point> input = move(output);
+        output.clear();
+        if (input.empty()) break;
+
+        Point S = input.back();
+        bool S_inside = isInsideRect(S, A, B);
+
+        for (const Point &P : input) {
+            bool P_inside = isInsideRect(P, A, B);
+            if (P_inside) {
+                if (!S_inside) {
+                    // S outside, P inside → add intersection, then P
+                    Point i = computeIntersectionRect(S, P, A, B);
+                    output.push_back(i);
+                }
+                // Always add P when inside
+                output.push_back(P);
+            }
+            else if (S_inside) {
+                // S inside, P outside → add intersection only
+                Point i = computeIntersectionRect(S, P, A, B);
+                output.push_back(i);
+            }
+            // else both outside → add nothing
+            S = P;
+            S_inside = P_inside;
+        }
+    }
+    return output;
+}
+
+
+// ------------------------------------------------------------
+// 2) CLIPPING AGAINST A SQUARE [Point, Line]
+// ------------------------------------------------------------
+
+// For simplicity, define a square by its center (cx,cy) and half‐side length h.
+// The square’s boundaries: [cx−h, cy−h] to [cx+h, cy+h].
+
+// 2.1) Point-in-square test
+bool ClipPointSquare(const Point &p, int cx, int cy, int halfSide) {
+    return (p.x >= cx - halfSide && p.x <= cx + halfSide &&
+            p.y >= cy - halfSide && p.y <= cy + halfSide);
+}
+
+// 2.2) Compute region code for Cohen–Sutherland specialized to square
+static int ComputeRegionCodeSquare(int x, int y, int cx, int cy, int halfSide) {
+    int code = INSIDE;
+    int xmin = cx - halfSide;
+    int xmax = cx + halfSide;
+    int ymin = cy - halfSide;
+    int ymax = cy + halfSide;
+    if (x < xmin)      code |= LEFT;
+    else if (x > xmax) code |= RIGHT;
+    if (y < ymin)      code |= BOTTOM;
+    else if (y > ymax) code |= TOP;
+    return code;
+}
+
+
+bool ClipLineSquare(Point &p1, Point &p2, int cx, int cy, int halfSide) {
+    int xmin = cx - halfSide;
+    int xmax = cx + halfSide;
+    int ymin = cy - halfSide;
+    int ymax = cy + halfSide;
+
+    int x1 = p1.x, y1 = p1.y;
+    int x2 = p2.x, y2 = p2.y;
+    int code1 = ComputeRegionCodeSquare(x1, y1, cx, cy, halfSide);
+    int code2 = ComputeRegionCodeSquare(x2, y2, cx, cy, halfSide);
+    bool accept = false;
+
+    while (true) {
+        if ((code1 | code2) == 0) {
+            // Both endpoints inside
+            accept = true;
+            break;
+        } else if (code1 & code2) {
+            // Both share an outside region → reject
+            break;
+        } else {
+            int codeOut = (code1 != 0) ? code1 : code2;
+            int x, y;
+
+            if (codeOut & TOP) {
+                x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
+                y = ymax;
+            } else if (codeOut & BOTTOM) {
+                x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
+                y = ymin;
+            } else if (codeOut & RIGHT) {
+                y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1);
+                x = xmax;
+            } else { // LEFT
+                y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1);
+                x = xmin;
+            }
+
+            if (codeOut == code1) {
+                x1 = x; y1 = y;
+                code1 = ComputeRegionCodeSquare(x1, y1, cx, cy, halfSide);
+            } else {
+                x2 = x; y2 = y;
+                code2 = ComputeRegionCodeSquare(x2, y2, cx, cy, halfSide);
+            }
+        }
+    }
+
+    if (accept) {
+        p1.x = x1; p1.y = y1;
+        p2.x = x2; p2.y = y2;
+        return true;
+    }
+    return false;
 }
