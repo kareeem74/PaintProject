@@ -80,6 +80,14 @@ void InitConsole() {
     freopen("CONOUT$", "w", stdout);
     freopen("CONOUT$", "w", stderr);
 }
+struct Vector2
+{
+    double x,y;
+    Vector2(double a=0,double b=0)
+    {
+        x=a; y=b;
+    }
+};
 
 vector<Shape> shapes;
 
@@ -121,14 +129,16 @@ void DrawEllipsePolar(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 
+void fillCircleWithLines(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color);
+void fillCircleWithCircles(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color);
+void fillSquareWithHermite(HDC hdc, int x, int y, int size, COLORREF color);
+void fillRectangleWithBezier(HDC hdc, int x, int y, int width, int height, COLORREF color);
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor);
 void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor);
-void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, COLORREF color);
+void DrawCardinalSpline(HDC hdc,Vector2 P[],int n,double c,int numpix);
 
-
-bool CohenSutherlandClip(int &x1, int &y1,int &x2, int &y2,int xmin, int ymin,int xmax, int ymax);
-vector<Point> SutherlandHodgmanPolygonClip(const vector<Point> &subject,const vector<Point> &clipWindow);
-
+void CohenSuth(HDC hdc,int xs,int ys,int xe,int ye,int xleft,int ytop,int xright,int ybottom);
+void PolygonClip(HDC hdc,POINT *p,int n,int xleft,int ytop,int xright,int ybottom);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
@@ -1046,14 +1056,7 @@ void GeneralPolygonFill(HDC hdc,POINT *polygon,int n,COLORREF c)
 // -----------------------------------------------------------------------------------------
 
 // Cardinal Spline
-struct Vector2
-{
-    double x,y;
-    Vector2(double a=0,double b=0)
-    {
-        x=a; y=b;
-    }
-};
+
 class Vector4
 {
     double v[4];
