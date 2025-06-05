@@ -22,10 +22,10 @@ using namespace std;
 // [*] Implement load function to load data from files
 // [*] Implement line algorithms [DDA, Midpoint and parametric]
 // [*] Implement Circle algorithms [Direct, Polar, iterative Polar, midpoint and modified Midpoint]
-// [ ] Filling Circle with lines after taking filling quarter from user
-// [ ] Filling Circle with other circles after taking filling quarter from user
-// [ ] Filling Square with Hermit Curve [Vertical]
-// [ ] Filling Rectangle with Bezier Curve [horizontal]
+// [*] Filling Circle with lines after taking filling quarter from user
+// [*] Filling Circle with other circles after taking filling quarter from user
+// [*] Filling Square with Hermit Curve [Vertical]
+// [*] Filling Rectangle with Bezier Curve [horizontal]
 // [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
 // [*] Cardinal Spline Curve
@@ -663,7 +663,7 @@ void DrawCircleIterativePolar(HDC hdc,int xc,int yc, int R,COLORREF color)
     }
 }
 
-void DrawCircleMidPoint(HDC hdc,int xc,int yc, int R,COLORREF color)
+void DrawCircleMidpoint(HDC hdc,int xc,int yc, int R,COLORREF color)
 {
     int x=0,y=R;
     int d=1-R;
@@ -797,6 +797,103 @@ void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color
 
 
 // ---------Filling Algorithms-----------
+
+//TODO
+
+void fillCircleWithLines(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color) {
+    for (int y = 0; y <= r; y++) {
+        int x = static_cast<int>(sqrt(r * r - y * y));
+        switch (quarter) {
+            case 1:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc + i, yc - y, color);
+                break;
+            case 2:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc - i, yc - y, color);
+                break;
+            case 3:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc - i, yc + y, color);
+                break;
+            case 4:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc + i, yc + y, color);
+                break;
+        }
+    }
+}
+
+
+void fillCircleWithCircles(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color) {
+    for (int rr = 0; rr <= r; rr++) {
+        switch (quarter) {
+            case 1: DrawCircleDirect(hdc, xc, yc, rr, color); break;
+            case 2: DrawCircleDirect(hdc, xc, yc, rr, color); break;
+            case 3: DrawCircleDirect(hdc, xc, yc, rr, color); break;
+            case 4: DrawCircleDirect(hdc, xc, yc, rr, color); break;
+        }
+    }
+}
+
+struct PointHB { // hermite bezier
+    float x, y;
+};
+
+PointHB hermite(float t, PointHB p0, PointHB p1, PointHB r0, PointHB r1) {
+    float h1 = 2 * t * t * t - 3 * t * t + 1;
+    float h2 = -2 * t * t * t + 3 * t * t;
+    float h3 = t * t * t - 2 * t * t + t;
+    float h4 = t * t * t - t * t;
+
+    return {
+        h1 * p0.x + h2 * p1.x + h3 * r0.x + h4 * r1.x,
+        h1 * p0.y + h2 * p1.y + h3 * r0.y + h4 * r1.y
+    };
+}
+
+void fillSquareWithHermite(HDC hdc, int x, int y, int size, COLORREF color) {
+    for (int dx = 0; dx <= size; dx++) {
+        PointHB p0 = {static_cast<float>(x + dx), static_cast<float>(y)};
+        PointHB p1 = {static_cast<float>(x + dx), static_cast<float>(y + size)};
+        PointHB r0 = {0, size / 2.0f};
+        PointHB r1 = {0, -size / 2.0f};
+
+        for (float t = 0; t <= 1.0f; t += 0.01f) {
+            PointHB pt = hermite(t, p0, p1, r0, r1);
+            SetPixel(hdc, static_cast<int>(pt.x), static_cast<int>(pt.y), color);
+        }
+    }
+}
+
+
+PointHB bezier(PointHB p0, PointHB p1, PointHB p2, PointHB p3, float t) {
+    float u = 1 - t;
+    float tt = t * t, uu = u * u;
+    float uuu = uu * u;
+    float ttt = tt * t;
+
+    return {
+        uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x,
+        uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y
+    };
+}
+
+void fillRectangleWithBezier(HDC hdc, int x, int y, int width, int height, COLORREF color) {
+    for (int dy = 0; dy <= height; dy++) {
+        PointHB p0 = {static_cast<float>(x), static_cast<float>(y + dy)};
+        PointHB p1 = {x + width / 3.0f, y + dy - 20.0f};
+        PointHB p2 = {x + 2 * width / 3.0f, y + dy + 20.0f};
+        PointHB p3 = {static_cast<float>(x + width), static_cast<float>(y + dy)};
+
+        for (float t = 0; t <= 1.0f; t += 0.01f) {
+            PointHB pt = bezier(p0, p1, p2, p3, t);
+            SetPixel(hdc, static_cast<int>(pt.x), static_cast<int>(pt.y), color);
+        }
+    }
+}
+
+
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor) {
     COLORREF current = GetPixel(hdc,x,y);
     if(current != RGB(255, 255, 255) || current == fillColor) return;
