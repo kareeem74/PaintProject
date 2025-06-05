@@ -25,7 +25,7 @@ using namespace std;
 // [ ] Filling Square with Hermit Curve [Vertical]
 // [ ] Filling Rectangle with Bezier Curve [horizontal]
 // [ ] Convex and Non-Convex Filling Algorithm
-// [ ] Recursive and Non-Recursive Flood Fill
+// [*] Recursive and Non-Recursive Flood Fill
 // [ ] Cardinal Spline Curve
 // [ ] Ellipse Algorithms [Direct, polar and midpoint]
 // [ ] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
@@ -89,7 +89,8 @@ std::vector<Shape> shapes;
 #define ID_DRAW_POLAR_CIRCLE        108
 #define ID_DRAW_PARAMETRIC_ELLIPSE  109
 #define ID_DRAW_MIDPOINT_ELLIPSE    110
-#define ID_DRAW_FILL                111
+#define ID_DRAW_FILL_STACK          111
+#define ID_DRAW_FILL_RECURSIVE      112
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -105,6 +106,8 @@ void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color);
 void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color);
 void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
 void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color);
+void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor);
+void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
@@ -159,14 +162,19 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hLineMenu, "Line");
 
             HMENU hCircleMenu = CreateMenu();
-            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_MIDPOINT_CIRCLE, "Outline Midpoint");
-            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_POLAR_CIRCLE, "Outline Polar");
+            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_MIDPOINT_CIRCLE, "Midpoint");
+            AppendMenu(hCircleMenu, MF_STRING, ID_DRAW_POLAR_CIRCLE, "Polar");
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hCircleMenu, "Circle");
 
             HMENU hEllipseMenu = CreateMenu();
-            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_MIDPOINT_ELLIPSE, "Outline Parametric");
-            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_PARAMETRIC_ELLIPSE, "Outline Midpoint");
+            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_MIDPOINT_ELLIPSE, "Parametric");
+            AppendMenu(hEllipseMenu, MF_STRING, ID_DRAW_PARAMETRIC_ELLIPSE, "Midpoint");
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hEllipseMenu, "Ellipse");
+
+            HMENU hFillMenu = CreateMenu();
+            AppendMenu(hFillMenu, MF_STRING, ID_DRAW_FILL_RECURSIVE, "Recursive");
+            AppendMenu(hFillMenu, MF_STRING, ID_DRAW_FILL_STACK, "Using Stack");
+            AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hFillMenu, "Fill");
 
 
             AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hToolMenu, "Tools");
@@ -215,6 +223,18 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 case ID_DRAW_MIDPOINT_ELLIPSE: {
                     toolSelected = ID_DRAW_MIDPOINT_ELLIPSE;
                     cout << "[Tool]   Midpoint Ellipse Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_FILL_STACK: {
+                    toolSelected = ID_DRAW_FILL_STACK;
+                    cout << "[Tool]   Fill using stack Tool selected." << endl;
+                    break;
+                }
+
+                case ID_DRAW_FILL_RECURSIVE: {
+                    toolSelected = ID_DRAW_FILL_RECURSIVE;
+                    cout << "[Tool]   Fill using recursive Tool selected." << endl;
                     break;
                 }
 
@@ -295,7 +315,8 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
         case WM_LBUTTONDOWN:
         if (toolSelected == ID_DRAW_DDA_LINE || toolSelected == ID_DRAW_MIDPOINT_LINE ||
             toolSelected == ID_DRAW_MIDPOINT_CIRCLE || toolSelected == ID_DRAW_POLAR_CIRCLE ||
-            toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE || toolSelected == ID_DRAW_MIDPOINT_ELLIPSE) {
+            toolSelected == ID_DRAW_PARAMETRIC_ELLIPSE || toolSelected == ID_DRAW_MIDPOINT_ELLIPSE ||
+            toolSelected == ID_DRAW_FILL_STACK || toolSelected == ID_DRAW_FILL_RECURSIVE) {
                 isDrawing = true;
                 startPoint.x = LOWORD(lp);
                 startPoint.y = HIWORD(lp);
@@ -435,6 +456,44 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 cout << "[Draw]   Midpoint Ellipse drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
+            else if (toolSelected == ID_DRAW_FILL_RECURSIVE && isDrawing) {
+
+                HDC hdc = GetDC(hwnd);
+
+                FloodFillRec(hdc, startPoint.x, startPoint.y, currentColor);
+                Shape newEllipse = {
+                    .type = SHAPE_FILL,
+                    .algorithm = STACK,
+                    .Fill = {
+                        {startPoint.x, startPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newEllipse);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   The Shape filled recursively from the point (" << startPoint.x << "," << startPoint.y << ")"
+                << "." << endl;
+            }
+            else if (toolSelected == ID_DRAW_FILL_STACK && isDrawing) {
+
+                HDC hdc = GetDC(hwnd);
+
+                FloodFillStack(hdc, startPoint.x, startPoint.y, currentColor);
+                Shape newEllipse = {
+                    .type = SHAPE_FILL,
+                    .algorithm = STACK,
+                    .Fill = {
+                        {startPoint.x, startPoint.y},
+                        currentColor
+                    }
+                };
+                shapes.push_back(newEllipse);
+                ReleaseDC(hwnd, hdc);
+                isDrawing = false;
+                cout << "[Draw]   The Shape filled iteratively from the point (" << startPoint.x << "," << startPoint.y << ")"
+                << "." << endl;
+            }
             break;
 
         case WM_PAINT: {
@@ -469,6 +528,14 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     else if (shape.algorithm == MIDPOINT) {
                         DrawEllipseParametric(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
                             shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
+                    }
+                }
+                else if (shape.type == SHAPE_FILL) {
+                    if (shape.algorithm == STACK) {
+                        FloodFillStack(hdc, shape.Fill.p.x, shape.Fill.p.y, shape.Fill.color);
+                    }
+                    else if (shape.algorithm == RECURSIVE) {
+                        FloodFillRec(hdc, shape.Fill.p.x, shape.Fill.p.y, shape.Fill.color);
                     }
                 }
             }
@@ -623,17 +690,27 @@ void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF col
 }
 
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor) {
-    COLORREF oldColor = GetPixel(hdc,x,y);
-    if(oldColor==fillColor) return;
+    COLORREF current = GetPixel(hdc,x,y);
+    if(current != RGB(255, 255, 255) || current == fillColor) return;
     stack<Point> stk;
     stk.push({x,y});
     while(!stk.empty()){
         Point p=stk.top(); stk.pop();
-        if(GetPixel(hdc,p.x,p.y)!=oldColor) continue;
+        if(GetPixel(hdc,p.x,p.y) != current) continue;
         SetPixel(hdc,p.x,p.y,fillColor);
-        stk.push({p.x+1,p.y});
-        stk.push({p.x-1,p.y});
-        stk.push({p.x,p.y+1});
         stk.push({p.x,p.y-1});
+        stk.push({p.x,p.y+1});
+        stk.push({p.x-1,p.y});
+        stk.push({p.x+1,p.y});
     }
+}
+
+void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor) {
+    COLORREF current = GetPixel(hdc,x,y);
+    if(current != RGB(255, 255, 255) || current == fillColor) return;
+    SetPixel(hdc,x,y,fillColor);
+    FloodFillRec(hdc,x+1,y,fillColor);
+    FloodFillRec(hdc,x-1,y,fillColor);
+    FloodFillRec(hdc,x,y+1,fillColor);
+    FloodFillRec(hdc,x,y-1,fillColor);
 }
