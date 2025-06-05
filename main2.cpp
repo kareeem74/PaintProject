@@ -1,9 +1,11 @@
+#include <algorithm>
 #include <iostream>
 #include <math.h>
 #include <Windows.h>
 #include <commdlg.h> // color picker
 #include <complex.h>
 #include <fstream>
+#include <list>
 #include <vector>
 #include <stack>
 
@@ -24,7 +26,7 @@ using namespace std;
 // [ ] Filling Circle with other circles after taking filling quarter from user
 // [ ] Filling Square with Hermit Curve [Vertical]
 // [ ] Filling Rectangle with Bezier Curve [horizontal]
-// [ ] Convex and Non-Convex Filling Algorithm
+// [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
 // [*] Cardinal Spline Curve
 // [*] Ellipse Algorithms [Direct, polar and midpoint]
@@ -67,11 +69,11 @@ struct Shape {
     };
 };
 
-typedef POINT Point;
-// struct Point {
-//     int x, y;
-//     Point(int _x=0, int _y=0) : x(_x), y(_y) {}
-// };
+//typedef POINT Point;
+struct Point {
+    int x, y;
+    Point(int _x=0, int _y=0) : x(_x), y(_y) {}
+};
 void InitConsole() {
     AllocConsole();
     freopen("CONIN$", "r", stdin);
@@ -79,8 +81,7 @@ void InitConsole() {
     freopen("CONOUT$", "w", stderr);
 }
 
-// Canvas info to save and load
-std::vector<Shape> shapes;
+vector<Shape> shapes;
 
 // Menu Options IDs
 #define ID_MENU_SAVE                101
@@ -578,6 +579,12 @@ int Round(double x)
 {
     return (int)(x + 0.5);
 }
+void swap(int& x,int& y)
+{
+    int tmp=x;
+    x=y;
+    y=tmp;
+}
 
 void DrawLineDDA(HDC hdc, int x1, int y1, int x2, int y2, COLORREF color) {
     int dx = x2 - x1, dy = y2 - y1;
@@ -617,15 +624,7 @@ void DrawLineParametric(HDC hdc, int x1, int y1, int x2, int y2, COLORREF color)
 
 // 2. Circle Drawing
 
-void DrawCircleDirect(HDC hdc, int xc, int yc, int r, COLORREF color) {
-    for (int x = -r; x <= r; x++) {
-        int y = static_cast<int>(round(sqrt(r * r - x * x)));
-        SetPixel(hdc, xc + x, yc + y, color);
-        SetPixel(hdc, xc + x, yc - y, color);
-    }
-}
-
-void draw8Points(HDC hdc, int xc, int yc, int xi, int yi, COLORREF color) {
+void Draw8Points(HDC hdc, int xc, int yc, int xi, int yi, COLORREF color) {
     SetPixel(hdc, xc + xi, yc + yi, color);
     SetPixel(hdc, xc - xi, yc + yi, color);
     SetPixel(hdc, xc + xi, yc - yi, color);
@@ -635,58 +634,92 @@ void draw8Points(HDC hdc, int xc, int yc, int xi, int yi, COLORREF color) {
     SetPixel(hdc, xc + yi, yc - xi, color);
     SetPixel(hdc, xc - yi, yc - xi, color);
 }
-void DrawCircleIterativePolar(HDC hdc, int xc, int yc, int r, COLORREF color) {
-    double x = r, y = 0;
-    double theta = 0, dtheta = 1.0 / r;
-    while (theta <= M_PI / 4) {
-        int xi = static_cast<int>(round(x)), yi = static_cast<int>(round(y));
-        draw8Points(hdc,xc,yc,xi,yi, color);
 
-        theta += dtheta;
-        double x_new = r * cos(theta);
-        double y_new = r * sin(theta);
-        x = x_new;
-        y = y_new;
+void DrawCircleDirect(HDC hdc,int xc,int yc, int R,COLORREF color)
+{
+    int x=0,y=R;
+    int R2=R*R;
+    Draw8Points(hdc,xc,yc,x,y,color);
+    while(x<y)
+    {
+        x++;
+        y=ceil(sqrt((double)(R2-x*x)));
+        Draw8Points(hdc,xc,yc,x,y,color);
     }
 }
 
-void DrawCircleMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color) {
-    int x = 0, y = r;
-    int d = 1 - r;
-    while (x <= y) {
-        draw8Points(hdc,xc,yc,x,y, color);
-        if (d < 0) {
-            d += 2 * x + 3;
-        } else {
-            d += 2 * (x - y) + 5;
+void DrawCircleIterativePolar(HDC hdc,int xc,int yc, int R,COLORREF color)
+{
+    double x=R,y=0;
+    double dtheta=1.0/R;
+    double cdtheta=cos(dtheta),sdtheta=sin(dtheta);
+    Draw8Points(hdc,xc,yc,R,0,color);
+    while(x>y)
+    {
+        double x1=x*cdtheta-y*sdtheta;
+        y=x*sdtheta+y*cdtheta;
+        x=x1;
+        Draw8Points(hdc,xc,yc,round(x),round(y),color);
+    }
+}
+
+void DrawCircleMidPoint(HDC hdc,int xc,int yc, int R,COLORREF color)
+{
+    int x=0,y=R;
+    int d=1-R;
+    Draw8Points(hdc,xc,yc,x,y,color);
+    while(x<y)
+    {
+        if(d<0)
+            d+=2*x+2;
+        else
+        {
+
+            d+=2*(x-y)+5;
             y--;
         }
         x++;
+        Draw8Points(hdc,xc,yc,x,y,color);
     }
 }
 
-void DrawCircleModifiedMidpoint(HDC hdc, int xc, int yc, int r, COLORREF color) {
-    int x = 0, y = r;
-    int d = 5 - 4 * r;
-    while (x <= y) {
-        draw8Points(hdc,xc,yc,x,y, color);
-        if (d < 0) {
-            d += 8 * x + 12;
-        } else {
-            d += 8 * (x - y) + 20;
+void DrawCircleModifiedMidpoint(HDC hdc,int xc,int yc, int R,COLORREF color)
+{
+    int x=0,y=R;
+    int d=1-R;
+    int c1=3, c2=5-2*R;
+    Draw8Points(hdc,xc,yc,x,y,color);
+    while(x<y)
+    {
+        if(d<0)
+        {
+            d+=c1;
+            c2+=2;
+        }
+        else
+        {
+
+            d+=c2;
+            c2+=4;
             y--;
         }
+        c1+=2;
         x++;
+        Draw8Points(hdc,xc,yc,x,y,color);
     }
 }
 
-void DrawCirclePolar(HDC hdc, int xc, int yc, int r, COLORREF color) {
-    double theta = 0, dtheta = 1.0 / r;
-    while (theta <= 2 * M_PI) {
-        int x = xc + static_cast<int>(round(r * cos(theta)));
-        int y = yc + static_cast<int>(round(r * sin(theta)));
-        SetPixel(hdc, x, y, color);
-        theta += dtheta;
+void DrawCirclePolar(HDC hdc,int xc,int yc, int R,COLORREF color)
+{
+    int x=R,y=0;
+    double theta=0,dtheta=1.0/R;
+    Draw8Points(hdc,xc,yc,x,y,color);
+    while(x>y)
+    {
+        theta+=dtheta;
+        x=round(R*cos(theta));
+        y=round(R*sin(theta));
+        Draw8Points(hdc,xc,yc,x,y,color);
     }
 }
 
@@ -762,6 +795,8 @@ void DrawEllipseMidpoint(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color
     }
 }
 
+
+// ---------Filling Algorithms-----------
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor) {
     COLORREF current = GetPixel(hdc,x,y);
     if(current != RGB(255, 255, 255) || current == fillColor) return;
@@ -788,292 +823,393 @@ void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor) {
     FloodFillRec(hdc,x,y-1,fillColor);
 }
 
+// Convex Fill
+const int MAX_ENTRIES =  600;
+struct Entry
+{
+    int xmin,xmax;
+};
+
+void InitEntries(Entry table[])
+{
+    for(int i=0; i< MAX_ENTRIES ; i++)
+    {
+
+        table[i].xmin=MAXINT;
+        table[i].xmax=-MAXINT;
+
+    }
+}
+
+void ScanEdge(POINT v1,POINT v2,Entry table[])
+{
+    if(v1.y==v2.y)return;
+    if(v1.y>v2.y)swap(v1,v2);
+    double minv=(double)(v2.x-v1.x)/(v2.y-v1.y);
+    double x=v1.x;
+    int y=v1.y;
+    while(y<v2.y)
+    {
+        if(x<table[y].xmin)table[y].xmin=(int)ceil(x);
+        if(x>table[y].xmax)table[y].xmax=(int)floor(x);
+        y++;
+        x+=minv;
+    }
+}
+void DrawSanLines(HDC hdc,Entry table[],COLORREF color)
+{
+    for(int y=0;y<MAX_ENTRIES;y++)
+        if(table[y].xmin<table[y].xmax)
+            for(int x=table[y].xmin;x<=table[y].xmax;x++)
+                SetPixel(hdc,x,y,color);
+
+}
+
+void ConvexFill(HDC hdc,POINT p[],int n,COLORREF color)
+{
+    Entry *table=new Entry[MAX_ENTRIES];
+    InitEntries(table);
+    POINT v1=p[n-1];
+    for(int i=0;i<n;i++)
+    {
+        POINT v2=p[i];
+        ScanEdge(v1,v2,table);
+        v1=p[i];
+    }
+    DrawSanLines(hdc,table,color);
+    delete table;
+}
+
+// General Polygon Fill
+const int MAXENTRIES = 600;
+struct EdgeRec
+{
+    double x;
+    double minv;
+    int ymax;
+    bool operator<(EdgeRec r)
+    {
+        return x<r.x;
+    }
+};
+typedef list<EdgeRec> EdgeList;
+
+EdgeRec InitEdgeRec(POINT& v1,POINT& v2)
+{
+    if(v1.y>v2.y)swap(v1,v2);
+    EdgeRec rec;
+    rec.x=v1.x;
+    rec.ymax=v2.y;
+    rec.minv=(double)(v2.x-v1.x)/(v2.y-v1.y);
+    return rec;
+}
+
+void InitEdgeTable(POINT *polygon,int n,EdgeList table[])
+{
+    POINT v1=polygon[n-1];
+    for(int i=0;i<n;i++)
+    {
+        POINT v2=polygon[i];
+        if(v1.y==v2.y){v1=v2;continue;}
+        EdgeRec rec=InitEdgeRec(v1, v2);
+        table[v1.y].push_back(rec);
+        v1=polygon[i];
+    }
+}
+
+void GeneralPolygonFill(HDC hdc,POINT *polygon,int n,COLORREF c)
+{
+    EdgeList *table=new EdgeList [MAXENTRIES];
+    InitEdgeTable(polygon,n,table);
+    int y=0;
+    while(y<MAXENTRIES && table[y].size()==0)y++;
+    if(y==MAXENTRIES)return;
+    EdgeList ActiveList=table[y];
+    while (ActiveList.size()>0)
+    {
+        ActiveList.sort();
+        for(EdgeList::iterator it=ActiveList.begin();it!=ActiveList.end();it++)
+        {
+            int x1=(int)ceil(it->x);
+            it++;
+            int x2=(int)floor(it->x);
+            for(int x=x1;x<=x2;x++)SetPixel(hdc,x,y,c);
+        }
+        y++;
+        EdgeList::iterator it=ActiveList.begin();
+        while(it!=ActiveList.end())
+            if(y==it->ymax) it=ActiveList.erase(it); else it++;
+        for(EdgeList::iterator it=ActiveList.begin();it!=ActiveList.end();it++)
+            it->x+=it->minv;
+        ActiveList.insert(ActiveList.end(),table[y].begin(),table[y].end());
+    }
+    delete[] table;
+}
+
+// -----------------------------------------------------------------------------------------
 
 // Cardinal Spline
-void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, COLORREF color) {
-    size_t n = pts.size();
-    if (n < 2) return;
-
-    // Compute derivatives D[i] for each control point:
-    // For interior points: D[i] = (1 - tension) * (P[i+1] - P[i-1]) / 2
-    // For endpoints:    D[0]     = (1 - tension) * (P[1]   - P[0])
-    //                    D[n-1]   = (1 - tension) * (P[n-1] - P[n-2])
-    std::vector<POINT> D(n);
-    float coef = (1.0f - tension);
-    // Endpoint derivative at i=0:
-    D[0].x = Round(coef * float(pts[1].x - pts[0].x));
-    D[0].y = Round(coef * float(pts[1].y - pts[0].y));
-    // Interior points:
-    for (size_t i = 1; i + 1 < n; ++i) {
-        float dx = float(pts[i+1].x - pts[i-1].x) * 0.5f;
-        float dy = float(pts[i+1].y - pts[i-1].y) * 0.5f;
-        D[i].x = Round(coef * dx);
-        D[i].y = Round(coef * dy);
+struct Vector2
+{
+    double x,y;
+    Vector2(double a=0,double b=0)
+    {
+        x=a; y=b;
     }
-    // Endpoint derivative at i=n-1:
-    D[n-1].x = Round(coef * float(pts[n-1].x - pts[n-2].x));
-    D[n-1].y = Round(coef * float(pts[n-1].y - pts[n-2].y));
+};
+class Vector4
+{
+    double v[4];
+public:
+    Vector4(double a=0,double b=0,double c=0,double d=0)
+    {
+        v[0]=a; v[1]=b; v[2]=c; v[3]=d;
+    }
 
-    // For each segment [P[i], P[i+1]], draw Hermite curve using P[i], P[i+1], D[i], D[i+1]:
-    const int STEPS = 100;                      // Increase for smoother curve
-    const double dt = 1.0 / STEPS;
-    for (size_t i = 0; i + 1 < n; ++i) {
-        const POINT& P1 = pts[i];
-        const POINT& P2 = pts[i+1];
-        const POINT& T1 = D[i];
-        const POINT& T2 = D[i+1];
+    Vector4(double a[])
+    {
+        memcpy(v,a,4*sizeof(double));
+    }
+    double& operator[](int i)
+    {
+        return v[i];
+    }
+};
 
-        for (int step = 0; step <= STEPS; ++step) {
-            double t  = step * dt;
-            double t2 = t * t;
-            double t3 = t2 * t;
+class Matrix4
+{
+    Vector4 M[4];
+public:
+    Matrix4(double A[])
+    {
+        memcpy(M,A,16*sizeof(double));
+    }
+    Vector4& operator[](int i)
+    {
+        return M[i];
+    }
+};
 
-            // Hermite basis functions
-            double h1 =  2.0 * t3 - 3.0 * t2 + 1.0;
-            double h2 = -2.0 * t3 + 3.0 * t2;
-            double h3 =       t3 - 2.0 * t2 + t;
-            double h4 =       t3 -     t2;
+Vector4 operator*(Matrix4 M,Vector4& b)
+{
+    Vector4 res;
+    for(int i=0;i<4;i++)
+        for(int j=0;j<4;j++)
+            res[i]+=M[i][j]*b[j];
 
-            double xf = h1 * P1.x + h2 * P2.x + h3 * T1.x + h4 * T2.x;
-            double yf = h1 * P1.y + h2 * P2.y + h3 * T1.y + h4 * T2.y;
+    return res;
+}
+double DotProduct(Vector4& a,Vector4& b)
+{
+    return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+}
 
-            SetPixel(hdc, Round(xf), Round(yf), color);
+Vector4 GetHermiteCoeff(double x0,double s0,double x1,double s1)
+{
+    static double H[16]={2,1,-2,1,-3,-2,3,-1,0,1,0,0,1,0,0,0};
+    static Matrix4 basis(H);
+    Vector4 v(x0,s0,x1,s1);
+    return basis*v;
+}
+
+void DrawHermiteCurve (HDC hdc,Vector2& P0,Vector2& T0,Vector2& P1,Vector2& T1 ,int
+numpoints)
+{
+    Vector4 xcoeff=GetHermiteCoeff(P0.x,T0.x,P1.x,T1.x);
+    Vector4 ycoeff=GetHermiteCoeff(P0.y,T0.y,P1.y,T1.y);
+    if(numpoints<2)return;
+    double dt=1.0/(numpoints-1);
+    for(double t=0;t<=1;t+=dt)
+    {
+        Vector4 vt;
+        vt[3]=1;
+        for(int i=2;i>=0;i--)vt[i]=vt[i+1]*t;
+        int x=round(DotProduct(xcoeff,vt));
+        int y=round(DotProduct(ycoeff,vt));
+        if(t==0)MoveToEx(hdc,x,y,NULL);else LineTo(hdc,x,y);
+    }
+}
+void DrawHermiteCurve(HDC hdc,Vector2& P0,Vector2& T0,Vector2& P1,Vector2& T1 ,int
+numpoints, COLORREF color)
+{
+    Vector4 xcoeff=GetHermiteCoeff(P0.x,T0.x,P1.x,T1.x);
+    Vector4 ycoeff=GetHermiteCoeff(P0.y,T0.y,P1.y,T1.y);
+    if(numpoints<2)return;
+    double dt=1.0/(numpoints-1);
+    for(double t=0;t<=1;t+=dt)
+    {
+        Vector4 vt;
+        vt[3]=1;
+
+
+
+        for(int i=2;i>=0;i--)vt[i]=vt[i+1]*t;
+        int x=round(DotProduct(xcoeff,vt));
+        int y=round(DotProduct(xcoeff,vt));
+        SetPixel(hdc,x,y,color);
+    }
+}
+
+void DrawCardinalSpline(HDC hdc,Vector2 P[],int n,double c,int numpix)
+{
+    double c1=1-c;
+    Vector2 T0(c1*(P[2].x-P[0].x),c1*(P[2].y-P[0].y));
+    for(int i=2;i<n-1;i++)
+    {
+        Vector2 T1(c1*(P[i+1].x-P[i-1].x),c1*(P[i+1].y-P[i-1].y));
+        DrawHermiteCurve(hdc,P[i-1],T0,P[i],T1,numpix);
+        T0=T1;
+    }
+}
+
+
+// ---------Clipping Algorithms-----------
+// Line Clipping
+union OutCode
+{
+    unsigned All:4;
+    struct{unsigned left:1,top:1,right:1,bottom:1;};
+};
+
+OutCode GetOutCode(double x,double y,int xleft,int ytop,int xright,int ybottom)
+{
+    OutCode out;
+    out.All=0;
+    if(x<xleft)out.left=1;else if(x>xright)out.right=1;
+    if(y<ytop)out.top=1;else if(y>ybottom)out.bottom=1;
+    return out;
+}
+
+void VIntersect(double xs,double ys,double xe,double ye,int x,double *xi,double *yi)
+{
+    *xi=x;
+    *yi=ys+(x-xs)*(ye-ys)/(xe-xs);
+}
+void HIntersect(double xs,double ys,double xe,double ye,int y,double *xi,double *yi)
+{
+    *yi=y;
+    *xi=xs+(y-ys)*(xe-xs)/(ye-ys);
+}
+
+void CohenSuth(HDC hdc,int xs,int ys,int xe,int ye,int xleft,int ytop,int xright,int ybottom)
+{
+    double x1=xs,y1=ys,x2=xe,y2=ye;
+    OutCode out1=GetOutCode(x1,y1,xleft,ytop,xright,ybottom);
+    OutCode out2=GetOutCode(x2,y2,xleft,ytop,xright,ybottom);
+    while( (out1.All || out2.All) && !(out1.All & out2.All))
+    {
+        double xi,yi;
+        if(out1.All)
+        {
+            if(out1.left)VIntersect(x1,y1,x2,y2,xleft,&xi,&yi);
+            else if(out1.top)HIntersect(x1,y1,x2,y2,ytop,&xi,&yi);
+            else if(out1.right)VIntersect(x1,y1,x2,y2,xright,&xi,&yi);
+            else HIntersect(x1,y1,x2,y2,ybottom,&xi,&yi);
+            x1=xi;
+            y1=yi;
+            out1=GetOutCode(x1,y1,xleft,ytop,xright,ybottom);
+        } else
+        {
+            if(out2.left)VIntersect(x1,y1,x2,y2,xleft,&xi,&yi);
+            else if(out2.top)HIntersect(x1,y1,x2,y2,ytop,&xi,&yi);
+            else if(out2.right)VIntersect(x1,y1,x2,y2,xright,&xi,&yi);
+            else HIntersect(x1,y1,x2,y2,ybottom,&xi,&yi);
+            x2=xi;
+            y2=yi;
+            out2=GetOutCode(x2,y2,xleft,ytop,xright,ybottom);
         }
     }
-}
-
-
-
-// Region‐code bits for Cohen–Sutherland
-const int INSIDE = 0;  // 0000
-const int LEFT   = 1;  // 0001
-const int RIGHT  = 2;  // 0010
-const int BOTTOM = 4;  // 0100
-const int TOP    = 8;  // 1000
-
-
-bool ClipPointRect(const Point &p, int xmin, int ymin, int xmax, int ymax) {
-    return (p.x >= xmin && p.x <= xmax && p.y >= ymin && p.y <= ymax);
-}
-
-static int ComputeRegionCodeRect(int x, int y, int xmin, int ymin, int xmax, int ymax) {
-    int code = INSIDE;
-    if (x < xmin)      code |= LEFT;
-    else if (x > xmax) code |= RIGHT;
-    if (y < ymin)      code |= BOTTOM;
-    else if (y > ymax) code |= TOP;
-    return code;
-}
-
-
-bool ClipLineRect(Point &p1, Point &p2, int xmin, int ymin, int xmax, int ymax) {
-    int x1 = p1.x, y1 = p1.y;
-    int x2 = p2.x, y2 = p2.y;
-    int code1 = ComputeRegionCodeRect(x1, y1, xmin, ymin, xmax, ymax);
-    int code2 = ComputeRegionCodeRect(x2, y2, xmin, ymin, xmax, ymax);
-    bool accept = false;
-
-    while (true) {
-        if ((code1 | code2) == 0) {
-            // Both endpoints inside
-            accept = true;
-            break;
-        } else if (code1 & code2) {
-            // Both share an outside zone → trivially reject
-            break;
-        } else {
-            // At least one endpoint is outside; pick it
-            int codeOut = (code1 != 0) ? code1 : code2;
-            int x, y;
-
-            if (codeOut & TOP) {
-                x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
-                y = ymax;
-            } else if (codeOut & BOTTOM) {
-                x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
-                y = ymin;
-            } else if (codeOut & RIGHT) {
-                y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1);
-                x = xmax;
-            } else { // LEFT
-                y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1);
-                x = xmin;
-            }
-
-            if (codeOut == code1) {
-                x1 = x;
-                y1 = y;
-                code1 = ComputeRegionCodeRect(x1, y1, xmin, ymin, xmax, ymax);
-            } else {
-                x2 = x;
-                y2 = y;
-                code2 = ComputeRegionCodeRect(x2, y2, xmin, ymin, xmax, ymax);
-            }
-        }
+    if(!out1.All && !out2.All)
+    {
+        MoveToEx(hdc,Round(x1),Round(y1),NULL);
+        LineTo(hdc,Round(x2),Round(y2));
     }
+}
 
-    if (accept) {
-        p1.x = x1; p1.y = y1;
-        p2.x = x2; p2.y = y2;
-        return true;
+// Polygon Clipping
+struct Vertex
+{
+    double x,y;
+    Vertex(int x1=0,int y1=0)
+    {
+        x=x1;
+        y=y1;
     }
-    return false;
-}
+};
+typedef vector<Vertex> VertexList;
+typedef bool (*IsInFunc)(Vertex& v,int edge);
+typedef Vertex (*IntersectFunc)(Vertex& v1,Vertex& v2,int edge);
 
-static bool isInsideRect(const Point &P, const Point &A, const Point &B) {
-    int cross = (B.x - A.x) * (P.y - A.y) - (B.y - A.y) * (P.x - A.x);
-    return (cross >= 0);
-}
+VertexList ClipWithEdge(VertexList p,int edge,IsInFunc In,IntersectFunc Intersect)
+{
+    VertexList OutList;
+    Vertex v1=p[p.size()-1];
+    bool v1_in=In(v1,edge);
+    for(int i=0;i<(int)p.size();i++)
+    {
+        Vertex v2=p[i];
+        bool v2_in=In(v2,edge);
+        if(!v1_in && v2_in)
+        {
 
-static Point computeIntersectionRect(
-    const Point &S, const Point &P,
-    const Point &A, const Point &B
-) {
-    int x1 = S.x, y1 = S.y;
-    int x2 = P.x, y2 = P.y;
-    int x3 = A.x, y3 = A.y;
-    int x4 = B.x, y4 = B.y;
-
-    int denom = (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4);
-    if (denom == 0) {
-        // Parallel lines; fallback to P
-        return P;
+            OutList.push_back(Intersect(v1,v2,edge));
+            OutList.push_back(v2);
+        }else if(v1_in && v2_in) OutList.push_back(v2);
+        else if(v1_in) OutList.push_back(Intersect(v1,v2,edge));
+        v1=v2;
+        v1_in=v2_in;
     }
-    int numX = (x1*y2 - y1*x2)*(x3 - x4) - (x1 - x2)*(x3*y4 - y3*x4);
-    int numY = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
-    int xi = numX / denom;
-    int yi = numY / denom;
-    return Point(xi, yi);
+    return OutList;
 }
 
-vector<Point> ClipPolygonRect(
-    const vector<Point> &subject,
-    int xmin, int ymin, int xmax, int ymax
-) {
-    // Define rectangle clip vertices in CCW:
-    vector<Point> clipWindow = {
-        { xmin, ymin }, { xmax, ymin },
-        { xmax, ymax }, { xmin, ymax }
-    };
+bool InLeft(Vertex& v,int edge)
+{
+    return v.x>=edge;
+}
+bool InRight(Vertex& v,int edge)
+{
+    return v.x<=edge;
+}
+bool InTop(Vertex& v,int edge)
+{
+    return v.y>=edge;
+}
+bool InBottom(Vertex& v,int edge)
+{
+    return v.y<=edge;
+}
 
-    vector<Point> output = subject;
-    int clipCount = static_cast<int>(clipWindow.size());
+Vertex VIntersect(Vertex& v1,Vertex& v2,int xedge)
+{
+    Vertex res;
+    res.x=xedge;
+    res.y=v1.y+(xedge-v1.x)*(v2.y-v1.y)/(v2.x-v1.x);
+    return res;
+}
+Vertex HIntersect(Vertex& v1,Vertex& v2,int yedge)
+{
+    Vertex res;
+    res.y=yedge;
+    res.x=v1.x+(yedge-v1.y)*(v2.x-v1.x)/(v2.y-v1.y);
+    return res;
+}
 
-    for (int i = 0; i < clipCount; ++i) {
-        Point A = clipWindow[i];
-        Point B = clipWindow[(i + 1) % clipCount];
-        vector<Point> input = move(output);
-        output.clear();
-        if (input.empty()) break;
-
-        Point S = input.back();
-        bool S_inside = isInsideRect(S, A, B);
-
-        for (const Point &P : input) {
-            bool P_inside = isInsideRect(P, A, B);
-            if (P_inside) {
-                if (!S_inside) {
-                    // S outside, P inside → add intersection, then P
-                    Point i = computeIntersectionRect(S, P, A, B);
-                    output.push_back(i);
-                }
-                // Always add P when inside
-                output.push_back(P);
-            }
-            else if (S_inside) {
-                // S inside, P outside → add intersection only
-                Point i = computeIntersectionRect(S, P, A, B);
-                output.push_back(i);
-            }
-            // else both outside → add nothing
-            S = P;
-            S_inside = P_inside;
-        }
+void PolygonClip(HDC hdc,POINT *p,int n,int xleft,int ytop,int xright,int ybottom)
+{
+    VertexList vlist;
+    for(int i=0;i<n;i++)vlist.push_back(Vertex(p[i].x,p[i].y));
+    vlist=ClipWithEdge(vlist,xleft,InLeft,VIntersect);
+    vlist=ClipWithEdge(vlist,ytop,InTop,HIntersect);
+    vlist=ClipWithEdge(vlist,xright,InRight,VIntersect);
+    vlist=ClipWithEdge(vlist,ybottom,InBottom,HIntersect);
+    Vertex v1=vlist[vlist.size()-1];
+    for(int i=0;i<(int)vlist.size();i++)
+    {
+        Vertex v2=vlist[i];
+        MoveToEx(hdc,Round(v1.x),Round(v1.y),NULL);
+        LineTo(hdc,Round(v2.x),Round(v2.y));
+        v1=v2;
     }
-    return output;
 }
 
-
-// ------------------------------------------------------------
-// 2) CLIPPING AGAINST A SQUARE [Point, Line]
-// ------------------------------------------------------------
-
-// For simplicity, define a square by its center (cx,cy) and half‐side length h.
-// The square’s boundaries: [cx−h, cy−h] to [cx+h, cy+h].
-
-// 2.1) Point-in-square test
-bool ClipPointSquare(const Point &p, int cx, int cy, int halfSide) {
-    return (p.x >= cx - halfSide && p.x <= cx + halfSide &&
-            p.y >= cy - halfSide && p.y <= cy + halfSide);
-}
-
-// 2.2) Compute region code for Cohen–Sutherland specialized to square
-static int ComputeRegionCodeSquare(int x, int y, int cx, int cy, int halfSide) {
-    int code = INSIDE;
-    int xmin = cx - halfSide;
-    int xmax = cx + halfSide;
-    int ymin = cy - halfSide;
-    int ymax = cy + halfSide;
-    if (x < xmin)      code |= LEFT;
-    else if (x > xmax) code |= RIGHT;
-    if (y < ymin)      code |= BOTTOM;
-    else if (y > ymax) code |= TOP;
-    return code;
-}
-
-
-bool ClipLineSquare(Point &p1, Point &p2, int cx, int cy, int halfSide) {
-    int xmin = cx - halfSide;
-    int xmax = cx + halfSide;
-    int ymin = cy - halfSide;
-    int ymax = cy + halfSide;
-
-    int x1 = p1.x, y1 = p1.y;
-    int x2 = p2.x, y2 = p2.y;
-    int code1 = ComputeRegionCodeSquare(x1, y1, cx, cy, halfSide);
-    int code2 = ComputeRegionCodeSquare(x2, y2, cx, cy, halfSide);
-    bool accept = false;
-
-    while (true) {
-        if ((code1 | code2) == 0) {
-            // Both endpoints inside
-            accept = true;
-            break;
-        } else if (code1 & code2) {
-            // Both share an outside region → reject
-            break;
-        } else {
-            int codeOut = (code1 != 0) ? code1 : code2;
-            int x, y;
-
-            if (codeOut & TOP) {
-                x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
-                y = ymax;
-            } else if (codeOut & BOTTOM) {
-                x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
-                y = ymin;
-            } else if (codeOut & RIGHT) {
-                y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1);
-                x = xmax;
-            } else { // LEFT
-                y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1);
-                x = xmin;
-            }
-
-            if (codeOut == code1) {
-                x1 = x; y1 = y;
-                code1 = ComputeRegionCodeSquare(x1, y1, cx, cy, halfSide);
-            } else {
-                x2 = x; y2 = y;
-                code2 = ComputeRegionCodeSquare(x2, y2, cx, cy, halfSide);
-            }
-        }
-    }
-
-    if (accept) {
-        p1.x = x1; p1.y = y1;
-        p2.x = x2; p2.y = y2;
-        return true;
-    }
-    return false;
-}
+//--------------------------------------------------------------------------------
