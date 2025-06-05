@@ -26,7 +26,7 @@ using namespace std;
 // [ ] Filling Rectangle with Bezier Curve [horizontal]
 // [ ] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
-// [ ] Cardinal Spline Curve
+// [*] Cardinal Spline Curve
 // [*] Ellipse Algorithms [Direct, polar and midpoint]
 // [ ] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
 // [ ] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
@@ -118,7 +118,7 @@ void DrawEllipseParametric(HDC hdc, int xc, int yc, int rx, int ry, COLORREF col
 
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor);
 void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor);
-
+void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, COLORREF color);
 
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
@@ -789,4 +789,58 @@ void FloodFillRec(HDC hdc,int x,int y,COLORREF fillColor) {
     FloodFillRec(hdc,x-1,y,fillColor);
     FloodFillRec(hdc,x,y+1,fillColor);
     FloodFillRec(hdc,x,y-1,fillColor);
+}
+
+
+// Cardinal Spline
+void DrawCardinalSpline(HDC hdc, const std::vector<POINT>& pts, float tension, COLORREF color) {
+    size_t n = pts.size();
+    if (n < 2) return;
+
+    // Compute derivatives D[i] for each control point:
+    // For interior points: D[i] = (1 - tension) * (P[i+1] - P[i-1]) / 2
+    // For endpoints:    D[0]     = (1 - tension) * (P[1]   - P[0])
+    //                    D[n-1]   = (1 - tension) * (P[n-1] - P[n-2])
+    std::vector<POINT> D(n);
+    float coef = (1.0f - tension);
+    // Endpoint derivative at i=0:
+    D[0].x = Round(coef * float(pts[1].x - pts[0].x));
+    D[0].y = Round(coef * float(pts[1].y - pts[0].y));
+    // Interior points:
+    for (size_t i = 1; i + 1 < n; ++i) {
+        float dx = float(pts[i+1].x - pts[i-1].x) * 0.5f;
+        float dy = float(pts[i+1].y - pts[i-1].y) * 0.5f;
+        D[i].x = Round(coef * dx);
+        D[i].y = Round(coef * dy);
+    }
+    // Endpoint derivative at i=n-1:
+    D[n-1].x = Round(coef * float(pts[n-1].x - pts[n-2].x));
+    D[n-1].y = Round(coef * float(pts[n-1].y - pts[n-2].y));
+
+    // For each segment [P[i], P[i+1]], draw Hermite curve using P[i], P[i+1], D[i], D[i+1]:
+    const int STEPS = 100;                      // Increase for smoother curve
+    const double dt = 1.0 / STEPS;
+    for (size_t i = 0; i + 1 < n; ++i) {
+        const POINT& P1 = pts[i];
+        const POINT& P2 = pts[i+1];
+        const POINT& T1 = D[i];
+        const POINT& T2 = D[i+1];
+
+        for (int step = 0; step <= STEPS; ++step) {
+            double t  = step * dt;
+            double t2 = t * t;
+            double t3 = t2 * t;
+
+            // Hermite basis functions
+            double h1 =  2.0 * t3 - 3.0 * t2 + 1.0;
+            double h2 = -2.0 * t3 + 3.0 * t2;
+            double h3 =       t3 - 2.0 * t2 + t;
+            double h4 =       t3 -     t2;
+
+            double xf = h1 * P1.x + h2 * P2.x + h3 * T1.x + h4 * T2.x;
+            double yf = h1 * P1.y + h2 * P2.y + h3 * T1.y + h4 * T2.y;
+
+            SetPixel(hdc, Round(xf), Round(yf), color);
+        }
+    }
 }
