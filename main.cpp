@@ -22,10 +22,10 @@ using namespace std;
 // [*] Implement load function to load data from files
 // [*] Implement line algorithms [DDA, Midpoint and parametric]
 // [*] Implement Circle algorithms [Direct, Polar, iterative Polar, midpoint and modified Midpoint]
-// [*] Filling Circle with lines after taking filling quarter from user
-// [*] Filling Circle with other circles after taking filling quarter from user
-// [*] Filling Square with Hermit Curve [Vertical]
-// [*] Filling Rectangle with Bezier Curve [horizontal]
+// [ ] Filling Circle with lines after taking filling quarter from user
+// [ ] Filling Circle with other circles after taking filling quarter from user
+// [ ] Filling Square with Hermit Curve [Vertical]
+// [ ] Filling Rectangle with Bezier Curve [horizontal]
 // [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
 // [*] Cardinal Spline Curve
@@ -2105,99 +2105,146 @@ public:
     {
         v[0]=a; v[1]=b; v[2]=c; v[3]=d;
     }
-
     Vector4(double a[])
     {
         memcpy(v,a,4*sizeof(double));
     }
-    double& operator[](int i)
-    {
-        return v[i];
-    }
+    double& operator[](int i)       { return v[i]; }
+    const double& operator[](int i) const { return v[i]; }
 };
 
 class Matrix4
 {
     Vector4 M[4];
 public:
-    Matrix4(double A[])
-    {
-        memcpy(M,A,16*sizeof(double));
+    Matrix4(double A[]) {
+        memcpy(M, A, 16*sizeof(double));
     }
-    Vector4& operator[](int i)
-    {
-        return M[i];
-    }
+    Vector4& operator[](int i)       { return M[i]; }
+    const Vector4& operator[](int i) const { return M[i]; }
 };
 
-Vector4 operator*(Matrix4 M,Vector4& b)
+Vector4 operator*(const Matrix4& M, const Vector4& b)
 {
-    Vector4 res;
-    for(int i=0;i<4;i++)
-        for(int j=0;j<4;j++)
-            res[i]+=M[i][j]*b[j];
-
+    Vector4 res(0,0,0,0);
+    for(int i=0; i<4; i++)
+        for(int j=0; j<4; j++)
+            res[i] += M[i][j] * b[j];
     return res;
 }
-double DotProduct(Vector4& a,Vector4& b)
+
+double DotProduct(const Vector4& a, const Vector4& b)
 {
-    return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
 }
 
-Vector4 GetHermiteCoeff(double x0,double s0,double x1,double s1)
+// This is exactly the same 4×4 Hermite‐to‐(a,b,c,d) basis you already had:
+static double Hmat[16] = {
+     2,  1, -2,  1,
+    -3, -2,  3, -1,
+     0,  1,  0,  0,
+     1,  0,  0,  0
+};
+static const Matrix4 HermiteBasis(Hmat);
+
+// Returns [a, b, c, d] so that
+//   x(t) = a·t^3 + b·t^2 + c·t + d.
+inline Vector4 GetHermiteCoeff(double x0, double s0, double x1, double s1)
 {
-    static double H[16]={2,1,-2,1,-3,-2,3,-1,0,1,0,0,1,0,0,0};
-    static Matrix4 basis(H);
-    Vector4 v(x0,s0,x1,s1);
-    return basis*v;
+    double V[4] = { x0, s0, x1, s1 };
+    Vector4 in(V);
+    return HermiteBasis * in;
 }
 
-void DrawHermiteCurve (HDC hdc,Vector2& P0,Vector2& T0,Vector2& P1,Vector2& T1 ,int
-numpoints)
-{
-    Vector4 xcoeff=GetHermiteCoeff(P0.x,T0.x,P1.x,T1.x);
-    Vector4 ycoeff=GetHermiteCoeff(P0.y,T0.y,P1.y,T1.y);
-    if(numpoints<2)return;
-    double dt=1.0/(numpoints-1);
-    for(double t=0;t<=1;t+=dt)
-    {
-        Vector4 vt;
-        vt[3]=1;
-        for(int i=2;i>=0;i--)vt[i]=vt[i+1]*t;
-        int x=round(DotProduct(xcoeff,vt));
-        int y=round(DotProduct(ycoeff,vt));
-        if(t==0)MoveToEx(hdc,x,y,NULL);else LineTo(hdc,x,y);
-    }
-}
-
-
-void DrawHermiteCurve(HDC hdc, Vector2& P0, Vector2& T0, Vector2& P1, Vector2& T1, int numpoints, COLORREF color) {
-    HPEN hPen = CreatePen(PS_SOLID, 1, color);
+// Draws a single cubic‐Hermite from P0→P1 with tangents T0, T1.
+// Identical to your second overload, except that we force the final
+// point (t=1.0) to be drawn exactly.
+void DrawHermiteCurve(
+    HDC          hdc,
+    const Vector2& P0,
+    const Vector2& T0,
+    const Vector2& P1,
+    const Vector2& T1,
+    int          numpix,
+    COLORREF     color
+) {
+    if (numpix < 2) return;
+    HPEN hPen    = CreatePen(PS_SOLID, 1, color);
     HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
 
-    Vector4 xcoeff = GetHermiteCoeff(P0.x, T0.x, P1.x, T1.x);
-    Vector4 ycoeff = GetHermiteCoeff(P0.y, T0.y, P1.y, T1.y);
-    if (numpoints < 2) return;
+    // Compute the polynomial coefficients [a,b,c,d] for x(t) and y(t):
+    Vector4 xcoef = GetHermiteCoeff(P0.x, T0.x, P1.x, T1.x);
+    Vector4 ycoef = GetHermiteCoeff(P0.y, T0.y, P1.y, T1.y);
 
-    double dt = 1.0 / (numpoints - 1);
-    for (double t = 0; t <= 1; t += dt) {
-        Vector4 vt(1, t, t*t, t*t*t);
-        int x = round(DotProduct(xcoeff, vt));
-        int y = round(DotProduct(ycoeff, vt));
-        if (t == 0) MoveToEx(hdc, x, y, NULL);
-        else LineTo(hdc, x, y);
+    // Step = 1/(numpix−1), so that k=0 → t=0, and k=numpix−1 → t=1 exactly.
+    double dt = 1.0 / (numpix - 1);
+
+    for (int k = 0; k < numpix; k++)
+    {
+        double t = dt * k;
+
+        // Build vt = [ t^3, t^2, t, 1 ]:
+        Vector4 vt(t*t*t, t*t, t, 1.0);
+
+        int x = (int)round(DotProduct(xcoef, vt));
+        int y = (int)round(DotProduct(ycoef, vt));
+
+        if (k == 0) MoveToEx(hdc, x, y, NULL);
+        else        LineTo  (hdc, x, y);
     }
+
     SelectObject(hdc, hOldPen);
     DeleteObject(hPen);
 }
 
-void DrawCardinalSpline(HDC hdc, Vector2 P[], int n, double c, int numpix, COLORREF color) {
-    double c1 = 1 - c;
-    Vector2 T0(c1 * (P[2].x - P[0].x), c1 * (P[2].y - P[0].y));
 
-    for (int i = 2; i < n - 1; i++) {
-        Vector2 T1(c1 * (P[i+1].x - P[i-1].x), c1 * (P[i+1].y - P[i-1].y));
-        DrawHermiteCurve(hdc, P[i-1], T0, P[i], T1, numpix, color);
-        T0 = T1;
+// -------------------------------------------------------
+// 2) CARDINAL SPLINE (fixed tangent formula)
+// -------------------------------------------------------
+void DrawCardinalSpline(
+    HDC           hdc,
+    Vector2       P[],
+    int           n,
+    double        c,
+    int           numpix,
+    COLORREF      color
+) {
+    if (n < 2 || numpix < 2) return;
+
+
+    double tension_factor = (1.0 - c) * 0.5;
+
+
+    auto getTangent = [&](int i) -> Vector2 {
+        if (i == 0) {
+            return Vector2(
+                tension_factor * (P[1].x - P[0].x),
+                tension_factor * (P[1].y - P[0].y)
+            );
+        }
+        else if (i == n - 1) {
+            return Vector2(
+                tension_factor * (P[n - 1].x - P[n - 2].x),
+                tension_factor * (P[n - 1].y - P[n - 2].y)
+            );
+        }
+        else {
+            // interior point
+            return Vector2(
+                tension_factor * (P[i + 1].x - P[i - 1].x),
+                tension_factor * (P[i + 1].y - P[i - 1].y)
+            );
+        }
+    };
+
+    // Now draw each segment (i → i+1):
+    for (int i = 0; i < n - 1; i++)
+    {
+        Vector2 P0 = P[i];
+        Vector2 P1 = P[i + 1];
+        Vector2 T0 = getTangent(i);
+        Vector2 T1 = getTangent(i + 1);
+
+        DrawHermiteCurve(hdc, P0, T0, P1, T1, numpix, color);
     }
 }
