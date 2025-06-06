@@ -28,10 +28,10 @@ using namespace std;
 // [ ] Filling Rectangle with Bezier Curve [horizontal]
 // [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
-// [ ] Cardinal Spline Curve
+// [*] Cardinal Spline Curve
 // [*] Ellipse Algorithms [Direct, polar and midpoint]
-// [ ] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
-// [ ] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
+// [*] Clipping algorithms using Rectangle as Clipping Window to clip [Point, Line, Polygon]
+// [*] Clipping algorithms using Square as Clipping Window to clip [Point, Line]
 // BONUS
 // [ ] Clipping algorithms using circle as a Clipping Window to clip [Point, Line]
 
@@ -42,6 +42,7 @@ enum ShapeType {
     SHAPE_CIRCLE,
     SHAPE_ELLIPSE,
     SHAPE_FILL,
+    SHAPE_CARDINAL_SPLINE,
 };
 
 // algorithms
@@ -57,9 +58,19 @@ enum Algorithm {
     RECURSIVE,
     CONVEX,
     GENERAL,
+    CARDINAL
 };
 
+struct Vector2
+{
+    double x,y;
+    Vector2(double a=0,double b=0)
+    {
+        x=a; y=b;
+    }
+};
 
+const int  MAX_CARDINAL_POINTS  = 100;    // Maximum control poin
 // Shape struct
 struct Shape {
     ShapeType type;
@@ -71,6 +82,13 @@ struct Shape {
         struct { POINT c, r; COLORREF color; } Ellipse;
         struct { POINT p; COLORREF color; } Fill;
         struct { POINT p[10]; int points; COLORREF color; } ScanLineFill;
+        struct {
+            int n;
+            POINT points[MAX_CARDINAL_POINTS];
+            double c;
+            int numpix;
+            COLORREF color;
+        } CardinalSpline;
     };
 };
 
@@ -103,6 +121,7 @@ std::vector<Shape> shapes;
 #define ID_DRAW_GENERAL_FILL                120
 #define ID_CLIP_LINE                        121
 #define ID_CLIP_POLYGON                     122
+#define ID_CARDINAL_SPLINE                  123
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -112,8 +131,7 @@ POINT endPoint;
 vector <POINT> controlPoints;
 int scanLineSize = 0;
 
-void Square(HDC hdc, int &x1, int &y1, int &x2, int &y2) {
-    // Normalize the starting and ending points
+void Square(HDC hdc, int x1, int y1, int x2, int y2) {
     int xleft = min(x1, x2);
     int ytop = min(y1, y2);
     int xright = max(x1, x2);
@@ -123,12 +141,16 @@ void Square(HDC hdc, int &x1, int &y1, int &x2, int &y2) {
     int height = ybottom - ytop;
     int side = min(width, height);
 
+    // Increase side length slightly (e.g., 10 pixels), but do not exceed bounds
+    int extra = 10;
+    int enlargedSide = min(side + extra, min(width, height));
 
-    if (width < height)
-        ybottom = ytop + side;
-    else
-        xright = xleft + side;
-
+    // Adjust right and bottom to enlarge square
+    if (width < height) {
+        ybottom = ytop + enlargedSide;
+    } else {
+        xright = xleft + enlargedSide;
+    }
 
     Rectangle(hdc, xleft, ytop, xright, ybottom);
 }
@@ -155,6 +177,8 @@ POINT* ShapeDrawer(HDC hdc, COLORREF c);
 
 void CohenSuth(HDC hdc,int xs,int ys,int xe,int ye,int xleft,int ytop,int xright,int ybottom);
 void PolygonClip(HDC hdc,POINT *p,int n,int xleft,int ytop,int xright,int ybottom);
+
+void DrawCardinalSpline(HDC hdc, Vector2 P[], int n, double c, int numpix, COLORREF color);
 
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
@@ -190,6 +214,9 @@ static Point rectStart, rectEnd;          // Stores rectangle coordinates
 
 static int polyClipState = 0;  // 0=idle, 1=drawing poly, 2=poly ready, 3=drawing rect
 static vector<POINT> polyPoints;  // Stores polygon points
+
+vector<POINT> cardinalPoints; // Stores control points for spline
+
 
 HWND hwndCanvas;
 
@@ -247,6 +274,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             AppendMenu(hClipMenu, MF_STRING, ID_CLIP_POLYGON, "Polygon");
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hClipMenu, "Clipping");
 
+            AppendMenu(hToolMenu, MF_POPUP, ID_CARDINAL_SPLINE, "Cardinal Spline");
 
             AppendMenu(hMenubar, MF_POPUP, (UINT_PTR)hToolMenu, "Tools");
 
@@ -260,7 +288,12 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
         }
 
         case WM_COMMAND:
-            switch (LOWORD(wp)) {
+            switch (LOWORD(wp))
+                {
+                case ID_CARDINAL_SPLINE:
+                    toolSelected = ID_CARDINAL_SPLINE;
+                    cout << "[Tool]   Cardinal Spline tool selected." << endl;
+                    break;
                 case ID_DRAW_DDA_LINE: {
                     toolSelected = ID_DRAW_DDA_LINE;
                     cout << "[Tool]   DDA Line Tool selected." << endl;
@@ -512,8 +545,11 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             int width = xright - xleft;
             int height = ybottom - ytop;
             int side = min(width, height);
-            xright = xleft + side;
-            ybottom = ytop + side;
+            int extra = 10;
+            int enlargedSide = min(side + extra, min(width, height));
+
+            xright = xleft + enlargedSide;
+            ybottom = ytop + enlargedSide;
             Square(hdc, xleft, ytop, xright, ybottom);
         }
 
@@ -594,6 +630,23 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     shapes.push_back(newFill);
                     controlPoints.clear();
                 }
+            }
+            else if (toolSelected == ID_CARDINAL_SPLINE) {
+                POINT pt;
+                pt.x = LOWORD(lp);
+                pt.y = HIWORD(lp);
+                cardinalPoints.push_back(pt);
+
+                HDC hdc = GetDC(hwnd);
+                // Draw control point
+                SetPixel(hdc, pt.x, pt.y, currentColor);
+
+                // Draw gray line between control points
+                if (cardinalPoints.size() > 1) {
+                    POINT prev = cardinalPoints[cardinalPoints.size()-2];
+                    DrawLineDDA(hdc, prev.x, prev.y, pt.x, pt.y, RGB(150, 150, 150));
+                }
+                ReleaseDC(hwnd, hdc);
             }
             else if (toolSelected) {
                 isDrawing = true;
@@ -957,6 +1010,36 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     cout << "Need at least 3 points for a polygon." << endl;
                 }
             }
+            else if (toolSelected == ID_CARDINAL_SPLINE && cardinalPoints.size() >= 4) {
+                HDC hdc = GetDC(hwnd);
+                int n = cardinalPoints.size();
+
+                // Convert to Vector2 array
+                Vector2* points = new Vector2[n];
+                for (int i = 0; i < n; i++) {
+                    points[i] = Vector2(cardinalPoints[i].x, cardinalPoints[i].y);
+                }
+
+                // Draw spline (tension = 0.5, 20 segments)
+                DrawCardinalSpline(hdc, points, n, 0.5, 20, currentColor);
+
+                // Store shape for redrawing
+                Shape newSpline{};
+                newSpline.type = SHAPE_CARDINAL_SPLINE;
+                newSpline.algorithm = CARDINAL;
+                newSpline.CardinalSpline.n = n;
+                newSpline.CardinalSpline.c = 0.5;
+                newSpline.CardinalSpline.numpix = 20;
+                newSpline.CardinalSpline.color = currentColor;
+                for (int i = 0; i < n; i++) {
+                    newSpline.CardinalSpline.points[i] = cardinalPoints[i];
+                }
+                shapes.push_back(newSpline);
+
+                cardinalPoints.clear();
+                delete[] points;
+                ReleaseDC(hwnd, hdc);
+            }
             break;
 
         case WM_PAINT: {
@@ -1031,6 +1114,22 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                         GeneralFill(hdc, points, shape.ScanLineFill.points, shape.ScanLineFill.color);
 
+                    }
+                    else if (shape.algorithm == SHAPE_CARDINAL_SPLINE) {
+                        int n = shape.CardinalSpline.n;
+                        Vector2* points = new Vector2[n];
+                        for (int i = 0; i < n; i++) {
+                            points[i] = Vector2(
+                                shape.CardinalSpline.points[i].x,
+                                shape.CardinalSpline.points[i].y
+                            );
+                        }
+                        DrawCardinalSpline(hdc, points, n,
+                            shape.CardinalSpline.c,
+                            shape.CardinalSpline.numpix,
+                            shape.CardinalSpline.color);
+                        delete[] points;
+                        break;
                     }
                 }
             }
@@ -1638,3 +1737,109 @@ void PolygonClip(HDC hdc, POINT *p, int n, int xleft, int ytop, int xright, int 
     }
 }
 
+// Cardinal Spline
+
+class Vector4
+{
+    double v[4];
+public:
+    Vector4(double a=0,double b=0,double c=0,double d=0)
+    {
+        v[0]=a; v[1]=b; v[2]=c; v[3]=d;
+    }
+
+    Vector4(double a[])
+    {
+        memcpy(v,a,4*sizeof(double));
+    }
+    double& operator[](int i)
+    {
+        return v[i];
+    }
+};
+
+class Matrix4
+{
+    Vector4 M[4];
+public:
+    Matrix4(double A[])
+    {
+        memcpy(M,A,16*sizeof(double));
+    }
+    Vector4& operator[](int i)
+    {
+        return M[i];
+    }
+};
+
+Vector4 operator*(Matrix4 M,Vector4& b)
+{
+    Vector4 res;
+    for(int i=0;i<4;i++)
+        for(int j=0;j<4;j++)
+            res[i]+=M[i][j]*b[j];
+
+    return res;
+}
+double DotProduct(Vector4& a,Vector4& b)
+{
+    return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+}
+
+Vector4 GetHermiteCoeff(double x0,double s0,double x1,double s1)
+{
+    static double H[16]={2,1,-2,1,-3,-2,3,-1,0,1,0,0,1,0,0,0};
+    static Matrix4 basis(H);
+    Vector4 v(x0,s0,x1,s1);
+    return basis*v;
+}
+
+void DrawHermiteCurve (HDC hdc,Vector2& P0,Vector2& T0,Vector2& P1,Vector2& T1 ,int
+numpoints)
+{
+    Vector4 xcoeff=GetHermiteCoeff(P0.x,T0.x,P1.x,T1.x);
+    Vector4 ycoeff=GetHermiteCoeff(P0.y,T0.y,P1.y,T1.y);
+    if(numpoints<2)return;
+    double dt=1.0/(numpoints-1);
+    for(double t=0;t<=1;t+=dt)
+    {
+        Vector4 vt;
+        vt[3]=1;
+        for(int i=2;i>=0;i--)vt[i]=vt[i+1]*t;
+        int x=round(DotProduct(xcoeff,vt));
+        int y=round(DotProduct(ycoeff,vt));
+        if(t==0)MoveToEx(hdc,x,y,NULL);else LineTo(hdc,x,y);
+    }
+}
+
+
+void DrawHermiteCurve(HDC hdc, Vector2& P0, Vector2& T0, Vector2& P1, Vector2& T1, int numpoints, COLORREF color) {
+    HPEN hPen = CreatePen(PS_SOLID, 1, color);
+    HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+
+    Vector4 xcoeff = GetHermiteCoeff(P0.x, T0.x, P1.x, T1.x);
+    Vector4 ycoeff = GetHermiteCoeff(P0.y, T0.y, P1.y, T1.y);
+    if (numpoints < 2) return;
+
+    double dt = 1.0 / (numpoints - 1);
+    for (double t = 0; t <= 1; t += dt) {
+        Vector4 vt(1, t, t*t, t*t*t);
+        int x = round(DotProduct(xcoeff, vt));
+        int y = round(DotProduct(ycoeff, vt));
+        if (t == 0) MoveToEx(hdc, x, y, NULL);
+        else LineTo(hdc, x, y);
+    }
+    SelectObject(hdc, hOldPen);
+    DeleteObject(hPen);
+}
+
+void DrawCardinalSpline(HDC hdc, Vector2 P[], int n, double c, int numpix, COLORREF color) {
+    double c1 = 1 - c;
+    Vector2 T0(c1 * (P[2].x - P[0].x), c1 * (P[2].y - P[0].y));
+
+    for (int i = 2; i < n - 1; i++) {
+        Vector2 T1(c1 * (P[i+1].x - P[i-1].x), c1 * (P[i+1].y - P[i-1].y));
+        DrawHermiteCurve(hdc, P[i-1], T0, P[i], T1, numpix, color);
+        T0 = T1;
+    }
+}
