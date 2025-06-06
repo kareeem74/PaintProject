@@ -22,10 +22,10 @@ using namespace std;
 // [*] Implement load function to load data from files
 // [*] Implement line algorithms [DDA, Midpoint and parametric]
 // [*] Implement Circle algorithms [Direct, Polar, iterative Polar, midpoint and modified Midpoint]
-// [ ] Filling Circle with lines after taking filling quarter from user
-// [ ] Filling Circle with other circles after taking filling quarter from user
-// [ ] Filling Square with Hermit Curve [Vertical]
-// [ ] Filling Rectangle with Bezier Curve [horizontal]
+// [*] Filling Circle with lines after taking filling quarter from user
+// [*] Filling Circle with other circles after taking filling quarter from user
+// [*] Filling Square with Hermit Curve [Vertical]
+// [*] Filling Rectangle with Bezier Curve [horizontal]
 // [*] Convex and Non-Convex Filling Algorithm
 // [*] Recursive and Non-Recursive Flood Fill
 // [*] Cardinal Spline Curve
@@ -58,7 +58,11 @@ enum Algorithm {
     RECURSIVE,
     CONVEX,
     GENERAL,
-    CARDINAL
+    CARDINAL,
+    FILL_CIRCLE_LINES,
+    FILL_CIRCLE_CIRCLES,
+    FILL_SQUARE_HERMITE,
+    FILL_RECTANGLE_BEZIER
 };
 
 struct Vector2
@@ -71,6 +75,7 @@ struct Vector2
 };
 
 const int  MAX_CARDINAL_POINTS  = 100;    // Maximum control poin
+typedef POINT Point;
 // Shape struct
 struct Shape {
     ShapeType type;
@@ -89,10 +94,49 @@ struct Shape {
             int numpix;
             COLORREF color;
         } CardinalSpline;
+
+        struct {
+            Point center;
+            int radius;
+            int quarter;
+            COLORREF color;
+        } CircleFill;
+
+        struct {
+            Point topLeft;
+            int size;
+            COLORREF color;
+        } SquareHermite;
+
+        struct {
+            Point topLeft;
+            int width, height;
+            COLORREF color;
+        } RectangleBezier;
+
+        struct {
+            POINT topLeft;
+            POINT bottomRight;
+            COLORREF color;
+            bool isSquare;  // True for square, false for rectangle
+        } ClipRect;
+
+        struct {
+            POINT start;
+            POINT end;
+            COLORREF color;
+        } ClippedLine;
+
+
+        struct {
+            POINT points[20]; // Max 20 points
+            int count;
+            COLORREF color;
+        } ClippedPolygon;
     };
 };
 
-typedef POINT Point;
+
 
 
 // Canvas info to save and load
@@ -122,6 +166,10 @@ std::vector<Shape> shapes;
 #define ID_CLIP_LINE                        121
 #define ID_CLIP_POLYGON                     122
 #define ID_CARDINAL_SPLINE                  123
+#define ID_FILL_CIRCLE_LINES                124
+#define ID_FILL_CIRCLE_CIRCLES              125
+#define ID_FILL_SQUARE_HERMITE              126
+#define ID_FILL_RECTANGLE_BEZIER            127
 
 // Global variables
 COLORREF currentColor = RGB(0, 0, 0);
@@ -180,6 +228,11 @@ void PolygonClip(HDC hdc,POINT *p,int n,int xleft,int ytop,int xright,int ybotto
 
 void DrawCardinalSpline(HDC hdc, Vector2 P[], int n, double c, int numpix, COLORREF color);
 
+void fillRectangleWithBezier(HDC hdc, int x, int y, int width, int height, COLORREF color);
+void fillSquareWithHermite(HDC hdc, int x, int y, int size, COLORREF color);
+void fillCircleWithCircles(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color);
+void fillCircleWithLines(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color);
+
 int APIENTRY WinMain(HINSTANCE hi, HINSTANCE pi, LPSTR cmd, int nsh)
 {
     WNDCLASS wc;
@@ -211,8 +264,11 @@ int nPoints = 0;
 static int clipState = 0;  // 0=idle, 1=line drawn, 2=rect started
 static Point clipLineStart, clipLineEnd;
 static Point rectStart, rectEnd;          // Stores rectangle coordinates
+static int clipRectType = 0; // 0=Rectangle, 1=Square
+
 
 static int polyClipState = 0;  // 0=idle, 1=drawing poly, 2=poly ready, 3=drawing rect
+static int polyClipRectType = 0; // 0=Rectangle, 1=Square
 static vector<POINT> polyPoints;  // Stores polygon points
 
 vector<POINT> cardinalPoints; // Stores control points for spline
@@ -262,6 +318,10 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
             HMENU hFillMenu = CreateMenu();
             AppendMenu(hFillMenu, MF_STRING, ID_DRAW_FILL_RECURSIVE, "Recursive");
             AppendMenu(hFillMenu, MF_STRING, ID_DRAW_FILL_STACK, "Using Stack");
+            AppendMenu(hFillMenu, MF_STRING, ID_FILL_CIRCLE_LINES, "Circle Quarter using Lines");
+            AppendMenu(hFillMenu, MF_STRING, ID_FILL_CIRCLE_CIRCLES, "Circle Quarter using Circles");
+            AppendMenu(hFillMenu, MF_STRING, ID_FILL_SQUARE_HERMITE, "Square Hermite");
+            AppendMenu(hFillMenu, MF_STRING, ID_FILL_RECTANGLE_BEZIER, "Rectangle Bezier");
             AppendMenu(hToolMenu, MF_POPUP, (UINT_PTR)hFillMenu, "Fill");
 
             HMENU hScanLineFillMenu = CreateMenu();
@@ -311,6 +371,30 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     cout << "[Tool]   Parametric Line Tool selected." << endl;
                     break;
                 }
+                case ID_FILL_CIRCLE_LINES: {
+                    toolSelected = ID_FILL_CIRCLE_LINES;
+                    cout << "[Tool]   Circle Quarter using Lines selected." << endl;
+                    break;
+                }
+
+                case ID_FILL_CIRCLE_CIRCLES: {
+                    toolSelected = ID_FILL_CIRCLE_CIRCLES;
+                    cout << "[Tool]   Circle Quarter using Circles selected." << endl;
+                    break;
+                }
+
+                case ID_FILL_SQUARE_HERMITE: {
+                    toolSelected = ID_FILL_SQUARE_HERMITE;
+                    cout << "[Tool]   Square Hermite selected." << endl;
+                    break;
+                }
+
+                case ID_FILL_RECTANGLE_BEZIER: {
+                    toolSelected = ID_FILL_RECTANGLE_BEZIER;
+                    cout << "[Tool]   Rectangle Bezier selected." << endl;
+                    break;
+                }
+
 
                 case ID_DRAW_DIRECT_CIRCLE: {
                     toolSelected = ID_DRAW_DIRECT_CIRCLE;
@@ -403,15 +487,21 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                 case ID_CLIP_LINE:
                     toolSelected = ID_CLIP_LINE;
-                    clipState = 0;  // Reset state
+                    clipState = 0;
                     cout << "[Tool]   Line Clipping Tool selected." << endl;
+                    // Prompt for rectangle type
+                    cout << "Enter clipping figure type [0=Rectangle, 1=Square]: ";
+                    cin >> clipRectType;
                     break;
 
                 case ID_CLIP_POLYGON:
                     toolSelected = ID_CLIP_POLYGON;
-                    polyClipState = 1;  // Start polygon drawing
+                    polyClipState = 1;
                     polyPoints.clear();
                     cout << "[Tool]   Polygon Clipping Tool selected." << endl;
+                    // Prompt for rectangle type
+                    cout << "Enter clipping figure type [0=Rectangle, 1=Square]: ";
+                    cin >> polyClipRectType;
                     cout << "Left-click to add points. Right-click to finish polygon." << endl;
                     break;
 
@@ -483,6 +573,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     isDrawing = true;
                     startPoint.x = LOWORD(lp);
                     startPoint.y = HIWORD(lp);
+
                 } else if (clipState == 1) {
                     // Second step: Start clipping rectangle
                     isDrawing = true;
@@ -523,35 +614,23 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
         rectEnd.x = LOWORD(lp);
         rectEnd.y = HIWORD(lp);
 
-        // Normalize rectangle
         int xleft = min(rectStart.x, rectEnd.x);
         int ytop = min(rectStart.y, rectEnd.y);
         int xright = max(rectStart.x, rectEnd.x);
         int ybottom = max(rectStart.y, rectEnd.y);
+
+        // Convert to square if requested
+        if (polyClipRectType == 1) { // Square
+            int side = min(xright - xleft, ybottom - ytop);
+            xright = xleft + side;
+            ybottom = ytop + side;
+        }
 
         HDC hdc = GetDC(hwnd);
 
         // Draw clipping rectangle in current color
         HPEN hRectPen = CreatePen(PS_DASH, 1, currentColor);
         HPEN oldPen = (HPEN)SelectObject(hdc, hRectPen);
-
-        bool rec;
-        cout << "[0] For using a Square [1] For using a Rectangle\n";
-        cin >> rec;
-
-        if (rec)
-            Rectangle(hdc, xleft, ytop, xright, ybottom);
-        else {
-            int width = xright - xleft;
-            int height = ybottom - ytop;
-            int side = min(width, height);
-            int extra = 10;
-            int enlargedSide = min(side + extra, min(width, height));
-
-            xright = xleft + enlargedSide;
-            ybottom = ytop + enlargedSide;
-            Square(hdc, xleft, ytop, xright, ybottom);
-        }
 
 
         // Draw the original polygon in gray
@@ -675,17 +754,24 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     isDrawing = false;
                 }
                 else if (clipState == 2) {
+                    HDC hdc = GetDC(hwnd);
                     // Second step: Finish clipping rectangle
+                    // Get rectangle coordinates
                     rectEnd.x = LOWORD(lp);
                     rectEnd.y = HIWORD(lp);
 
-                    HDC hdc = GetDC(hwnd);
-
-                    // Calculate normalized rectangle
                     int xleft = min(rectStart.x, rectEnd.x);
                     int ytop = min(rectStart.y, rectEnd.y);
                     int xright = max(rectStart.x, rectEnd.x);
                     int ybottom = max(rectStart.y, rectEnd.y);
+
+                    // Convert to square if requested
+                    if (clipRectType == 1) {
+                        // Square
+                        int side = min(xright - xleft, ybottom - ytop);
+                        xright = xleft + side;
+                        ybottom = ytop + side;
+                    }
 
                     // Draw clipping rectangle
                     HPEN hRectPen = CreatePen(PS_DASH, 1, currentColor);
@@ -709,7 +795,8 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     isDrawing = false;
                 }
             }
-            if (toolSelected == ID_DRAW_DDA_LINE && isDrawing) {
+
+            else if (toolSelected == ID_DRAW_DDA_LINE && isDrawing) {
                 endPoint.x = LOWORD(lp);
                 endPoint.y = HIWORD(lp);
 
@@ -730,27 +817,125 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 cout << "[Draw]   DDA line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
                     endPoint.x << "," << endPoint.y << ")" << endl;
             }
-            else if (toolSelected == ID_DRAW_MIDPOINT_LINE && isDrawing) {
-                endPoint.x = LOWORD(lp);
-                endPoint.y = HIWORD(lp);
+            // Circle Filling with Lines
+    else if (toolSelected == ID_FILL_CIRCLE_LINES && isDrawing) {
+        endPoint.x = LOWORD(lp);
+        endPoint.y = HIWORD(lp);
 
-                HDC hdc = GetDC(hwnd);
-                DrawLineMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
-                Shape newLine = {
-                    .type = SHAPE_LINE,
-                    .algorithm = MIDPOINT,
-                    .Line = {
-                        {startPoint.x, startPoint.y},
-                        {endPoint.x, endPoint.y},
-                        currentColor
-                    }
-                };
-                shapes.push_back(newLine);
-                ReleaseDC(hwnd, hdc);
-                isDrawing = false;
-                cout << "[Draw]   Midpoint (Bresenham) line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
-                    endPoint.x << "," << endPoint.y << ")" << endl;
+        int radius = static_cast<int>(sqrt(pow(endPoint.x - startPoint.x, 2) + pow(endPoint.y - startPoint.y, 2)));
+
+        // Get quarter from user
+        int quarter;
+        cout << "Enter quarter (1-4): ";
+        cin >> quarter;
+
+        HDC hdc = GetDC(hwnd);
+        fillCircleWithLines(hdc, startPoint.x, startPoint.y, radius, quarter, currentColor);
+
+        // Store shape
+        Shape newShape;
+        newShape.type = SHAPE_FILL;
+        newShape.algorithm = FILL_CIRCLE_LINES;
+        newShape.CircleFill = { {startPoint.x, startPoint.y}, radius, quarter, currentColor };
+        shapes.push_back(newShape);
+
+        ReleaseDC(hwnd, hdc);
+        isDrawing = false;
+    }
+    // Circle Filling with Circles
+    else if (toolSelected == ID_FILL_CIRCLE_CIRCLES && isDrawing) {
+        endPoint.x = LOWORD(lp);
+        endPoint.y = HIWORD(lp);
+
+        int radius = static_cast<int>(sqrt(pow(endPoint.x - startPoint.x, 2) + pow(endPoint.y - startPoint.y, 2)));
+
+        // Get quarter from user
+        int quarter;
+        cout << "Enter quarter (1-4): ";
+        cin >> quarter;
+
+        HDC hdc = GetDC(hwnd);
+        fillCircleWithCircles(hdc, startPoint.x, startPoint.y, radius, quarter, currentColor);
+
+        // Store shape
+        Shape newShape;
+        newShape.type = SHAPE_FILL;
+        newShape.algorithm = FILL_CIRCLE_CIRCLES;
+        newShape.CircleFill = { {startPoint.x, startPoint.y}, radius, quarter, currentColor };
+        shapes.push_back(newShape);
+
+        ReleaseDC(hwnd, hdc);
+        isDrawing = false;
+    }
+    // Square Hermite
+    else if (toolSelected == ID_FILL_SQUARE_HERMITE && isDrawing) {
+        endPoint.x = LOWORD(lp);
+        endPoint.y = HIWORD(lp);
+
+        int size = min(abs(endPoint.x - startPoint.x), abs(endPoint.y - startPoint.y));
+        int x = min(startPoint.x, endPoint.x);
+        int y = min(startPoint.y, endPoint.y);
+
+        HDC hdc = GetDC(hwnd);
+        fillSquareWithHermite(hdc, x, y, size, currentColor);
+
+        // Store shape
+        Shape newShape;
+        newShape.type = SHAPE_FILL;
+        newShape.algorithm = FILL_SQUARE_HERMITE;
+        newShape.SquareHermite = { {x, y}, size, currentColor };
+        shapes.push_back(newShape);
+
+        ReleaseDC(hwnd, hdc);
+        isDrawing = false;
+    }
+    // Rectangle Bezier
+    else if (toolSelected == ID_FILL_RECTANGLE_BEZIER && isDrawing) {
+        endPoint.x = LOWORD(lp);
+        endPoint.y = HIWORD(lp);
+
+        int x = min(startPoint.x, endPoint.x);
+        int y = min(startPoint.y, endPoint.y);
+        int width = abs(endPoint.x - startPoint.x);
+        int height = abs(endPoint.y - startPoint.y);
+
+        HDC hdc = GetDC(hwnd);
+        fillRectangleWithBezier(hdc, x, y, width, height, currentColor);
+
+        // Store shape
+        Shape newShape;
+        newShape.type = SHAPE_FILL;
+        newShape.algorithm = FILL_RECTANGLE_BEZIER;
+        newShape.RectangleBezier = { {x, y}, width, height, currentColor };
+        shapes.push_back(newShape);
+
+        ReleaseDC(hwnd, hdc);
+        isDrawing = false;
+
+    }
+    else if (toolSelected == ID_DRAW_MIDPOINT_LINE && isDrawing) {
+        endPoint.x = LOWORD(lp);
+        endPoint.y = HIWORD(lp);
+
+        HDC hdc = GetDC(hwnd);
+        DrawLineMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
+        Shape newLine = {
+            .type = SHAPE_LINE,
+            .algorithm = MIDPOINT,
+            .Line = {
+                {startPoint.x, startPoint.y},
+                {endPoint.x, endPoint.y},
+                currentColor
             }
+        };
+        shapes.push_back(newLine);
+        ReleaseDC(hwnd, hdc);
+        isDrawing = false;
+        cout << "[Draw]   Midpoint (Bresenham) line drawn from the point (" << startPoint.x << "," << startPoint.y << ") to ("  <<
+            endPoint.x << "," << endPoint.y << ")" << endl;
+    }
+
+
             else if (toolSelected == ID_DRAW_PARAMETRIC_LINE && isDrawing) {
                 endPoint.x = LOWORD(lp);
                 endPoint.y = HIWORD(lp);
@@ -1100,6 +1285,37 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                     if (shape.algorithm == STACK) {
                         FloodFillStack(hdc, shape.Fill.p.x, shape.Fill.p.y, shape.Fill.color);
                     }
+                    else if (shape.algorithm == FILL_CIRCLE_LINES) {
+                        fillCircleWithLines(hdc,
+                            shape.CircleFill.center.x,
+                            shape.CircleFill.center.y,
+                            shape.CircleFill.radius,
+                            shape.CircleFill.quarter,
+                            shape.CircleFill.color);
+                    }
+                    else if (shape.algorithm == FILL_CIRCLE_CIRCLES) {
+                        fillCircleWithCircles(hdc,
+                            shape.CircleFill.center.x,
+                            shape.CircleFill.center.y,
+                            shape.CircleFill.radius,
+                            shape.CircleFill.quarter,
+                            shape.CircleFill.color);
+                    }
+                    else if (shape.algorithm == FILL_SQUARE_HERMITE) {
+                        fillSquareWithHermite(hdc,
+                            shape.SquareHermite.topLeft.x,
+                            shape.SquareHermite.topLeft.y,
+                            shape.SquareHermite.size,
+                            shape.SquareHermite.color);
+                    }
+                    else if (shape.algorithm == FILL_RECTANGLE_BEZIER) {
+                        fillRectangleWithBezier(hdc,
+                            shape.RectangleBezier.topLeft.x,
+                            shape.RectangleBezier.topLeft.y,
+                            shape.RectangleBezier.width,
+                            shape.RectangleBezier.height,
+                            shape.RectangleBezier.color);
+                    }
                     else if (shape.algorithm == RECURSIVE) {
                         FloodFillRec(hdc, shape.Fill.p.x, shape.Fill.p.y, shape.Fill.color);
                     }
@@ -1412,6 +1628,139 @@ void DrawEllipsePolar(HDC hdc, int xc, int yc, int rx, int ry, COLORREF color)
 }
 
 // Fill
+
+void fillCircleWithLines(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color) {
+    DrawCircleDirect(hdc, xc, yc, r, RGB(0, 0, 0));
+    for (int y = 0; y <= r; y++) {
+        int x = static_cast<int>(sqrt(r * r - y * y));
+        switch (quarter) {
+            case 1:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc + i, yc - y, color);
+                break;
+            case 2:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc - i, yc - y, color);
+                break;
+            case 3:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc - i, yc + y, color);
+                break;
+            case 4:
+                for (int i = 0; i <= x; ++i)
+                    SetPixel(hdc, xc + i, yc + y, color);
+                break;
+        }
+    }
+}
+
+
+void DrawCircleQuarter(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color) {
+    if (r == 0) {
+        SetPixel(hdc, xc, yc, color);
+        return;
+    }
+
+    int x = 0;
+    int y = r;
+    int d = 1 - r;
+
+    while (x <= y) {
+        switch (quarter) {
+            case 1: // Top-right quarter (0° to 90°)
+                SetPixel(hdc, xc + x, yc - y, color);
+                SetPixel(hdc, xc + y, yc - x, color);
+                break;
+            case 2: // Top-left quarter (90° to 180°)
+                SetPixel(hdc, xc - x, yc - y, color);
+                SetPixel(hdc, xc - y, yc - x, color);
+                break;
+            case 3: // Bottom-left quarter (180° to 270°)
+                SetPixel(hdc, xc - x, yc + y, color);
+                SetPixel(hdc, xc - y, yc + x, color);
+                break;
+            case 4: // Bottom-right quarter (270° to 360°)
+                SetPixel(hdc, xc + x, yc + y, color);
+                SetPixel(hdc, xc + y, yc + x, color);
+                break;
+        }
+
+        if (d < 0) {
+            d += 2 * x + 3;
+        } else {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+    }
+}
+
+void fillCircleWithCircles(HDC hdc, int xc, int yc, int r, int quarter, COLORREF color) {
+    DrawCircleDirect(hdc, xc, yc, r, RGB(0, 0, 0));
+
+    for (int rr = 0; rr <= r; rr++)
+        DrawCircleQuarter(hdc, xc, yc, rr, quarter, color);
+
+}
+
+struct PointHB { // hermite bezier
+    float x, y;
+};
+
+PointHB hermite(float t, PointHB p0, PointHB p1, PointHB r0, PointHB r1) {
+    float h1 = 2 * t * t * t - 3 * t * t + 1;
+    float h2 = -2 * t * t * t + 3 * t * t;
+    float h3 = t * t * t - 2 * t * t + t;
+    float h4 = t * t * t - t * t;
+
+    return {
+        h1 * p0.x + h2 * p1.x + h3 * r0.x + h4 * r1.x,
+        h1 * p0.y + h2 * p1.y + h3 * r0.y + h4 * r1.y
+    };
+}
+
+void fillSquareWithHermite(HDC hdc, int x, int y, int size, COLORREF color) {
+    for (int dx = 0; dx <= size; dx++) {
+        PointHB p0 = {static_cast<float>(x + dx), static_cast<float>(y)};
+        PointHB p1 = {static_cast<float>(x + dx), static_cast<float>(y + size)};
+        PointHB r0 = {0, size / 2.0f};
+        PointHB r1 = {0, -size / 2.0f};
+
+        for (float t = 0; t <= 1.0f; t += 0.001f) {
+            PointHB pt = hermite(t, p0, p1, r0, r1);
+            SetPixel(hdc, Round(static_cast<float>(pt.x)), Round(static_cast<float>(pt.y)), color);
+        }
+    }
+}
+
+
+PointHB bezier(PointHB p0, PointHB p1, PointHB p2, PointHB p3, float t) {
+    float u = 1 - t;
+    float tt = t * t, uu = u * u;
+    float uuu = uu * u;
+    float ttt = tt * t;
+
+    return {
+        uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x,
+        uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y
+    };
+}
+
+void fillRectangleWithBezier(HDC hdc, int x, int y, int width, int height, COLORREF color) {
+    for (int dy = 0; dy <= height; dy++) {
+        PointHB p0 = {static_cast<float>(x), static_cast<float>(y + dy)};
+        PointHB p1 = {x + width / 1.0f, y + dy - 00.0f};
+        PointHB p2 = {x + 2 * width / 1.0f, y + dy + 00.0f};
+        PointHB p3 = {static_cast<float>(x + width), static_cast<float>(y + dy)};
+
+        for (float t = 0; t <= 1.0f; t += 0.0001f) {
+            PointHB pt = bezier(p0, p1, p2, p3, t);
+            SetPixel(hdc, Round(static_cast<float>(pt.x)), Round(static_cast<float>(pt.y)), color);
+        }
+    }
+}
+
+
 // Flood Fill algorithms
 void FloodFillStack(HDC hdc, int x, int y, COLORREF fillColor) {
     COLORREF current = GetPixel(hdc,x,y);
@@ -1716,6 +2065,15 @@ Vertex HIntersect(Vertex& v1,Vertex& v2,int yedge)
 
 void PolygonClip(HDC hdc, POINT *p, int n, int xleft, int ytop, int xright, int ybottom)
 {
+    HPEN grayDashedPen = CreatePen(PS_DASH, 1, RGB(128, 128, 128));
+    HPEN oldPen = (HPEN)SelectObject(hdc, grayDashedPen);
+
+    // Draw the rectangle with the custom pen
+    Rectangle(hdc, xleft, ytop, xright, ybottom);
+
+    // Restore old pen and delete the custom pen
+    SelectObject(hdc, oldPen);
+    DeleteObject(grayDashedPen);
     VertexList vlist;
     for(int i=0; i<n; i++)
         vlist.push_back(Vertex(p[i].x, p[i].y));
