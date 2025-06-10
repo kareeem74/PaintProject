@@ -1185,37 +1185,37 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
                 else if (shape.type == SHAPE_CIRCLE) {
                     if (shape.algorithm == DIRECT) {
                         DrawCircleDirect(hdc, shape.Circle.c.x, shape.Circle.c.y,
-                            shape.Circle.radius, shape.Line.color);
+                            shape.Circle.radius, shape.Circle.color);
                     }
                     else if (shape.algorithm == MIDPOINT) {
                         DrawCircleMidpoint(hdc, shape.Circle.c.x, shape.Circle.c.y,
-                            shape.Circle.radius, shape.Line.color);
+                            shape.Circle.radius, shape.Circle.color);
                     }
                     else if (shape.algorithm == MODIFIED_MIDPOINT) {
                         DrawCircleModMidpoint(hdc, shape.Circle.c.x, shape.Circle.c.y,
-                            shape.Circle.radius, shape.Line.color);
+                            shape.Circle.radius, shape.Circle.color);
                     }
                     else if (shape.algorithm == POLAR) {
                         DrawCirclePolar(hdc, shape.Circle.c.x, shape.Circle.c.y,
-                            shape.Circle.radius, shape.Line.color);
+                            shape.Circle.radius, shape.Circle.color);
                     }
                     else if (shape.algorithm == ITERATIVE_POLAR) {
                         DrawCircleItPolar(hdc, shape.Circle.c.x, shape.Circle.c.y,
-                            shape.Circle.radius, shape.Line.color);
+                            shape.Circle.radius, shape.Circle.color);
                     }
                 }
                 else if (shape.type == SHAPE_ELLIPSE) {
                     if (shape.algorithm == DIRECT) {
                         DrawEllipseDirect(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
-                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
+                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Ellipse.color);
                     }
                     else if (shape.algorithm == MIDPOINT) {
                         DrawEllipseMidpoint(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
-                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
+                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Ellipse.color);
                     }
                     else if (shape.algorithm == POLAR) {
                         DrawEllipsePolar(hdc, shape.Ellipse.c.x, shape.Ellipse.c.y,
-                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Line.color);
+                            shape.Ellipse.r.x, shape.Ellipse.r.y, shape.Ellipse.color);
                     }
                 }
                 else if (shape.type == SHAPE_FILL) {
