@@ -864,7 +864,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                 DrawEllipseDirect(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newEllipse = {
-                    .type = SHAPE_CIRCLE,
+                    .type = SHAPE_ELLIPSE,
                     .algorithm = POLAR,
                     .Ellipse = {
                         {startPoint.x, startPoint.y},
@@ -886,7 +886,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                 DrawEllipseMidpoint(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newEllipse = {
-                    .type = SHAPE_CIRCLE,
+                    .type = SHAPE_ELLIPSE,
                     .algorithm = MIDPOINT,
                     .Ellipse = {
                         {startPoint.x, startPoint.y},
@@ -908,7 +908,7 @@ LRESULT WndProc(HWND hwnd, UINT m, WPARAM wp, LPARAM lp)
 
                 DrawEllipsePolar(hdc, startPoint.x, startPoint.y, endPoint.x, endPoint.y, currentColor);
                 Shape newEllipse = {
-                    .type = SHAPE_CIRCLE,
+                    .type = SHAPE_ELLIPSE,
                     .algorithm = POLAR,
                     .Ellipse = {
                         {startPoint.x, startPoint.y},
